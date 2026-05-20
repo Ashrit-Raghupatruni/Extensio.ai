@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  db:
+    image: mongo:6
+    container_name: extensio-db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  app:
+    build: ./backend
+    container_name: extensio-app
+    ports:
+      - "4000:4000"
+    environment:
+      - MONGO_URI=mongodb://db:27017/extensio
+      - PORT=4000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
+    volumes:
+      - ./backend/downloads:/usr/src/app/downloads
+      - ./backend/tmp:/usr/src/app/tmp
+      - ./frontend:/usr/src/frontend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

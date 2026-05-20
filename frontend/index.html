@@ -1,0 +1,1959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extensio.ai | Enterprise AI Chrome Extension Platform</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: rgba(15, 23, 42, 0.5);
+      --surface-hover: rgba(30, 41, 59, 0.6);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.4);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #a855f7;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --error: #ef4444;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --font-ui: 'Inter', -apple-system, sans-serif;
+      --font-display: 'Outfit', sans-serif;
+      --font-mono: 'Fira Code', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    body {
+      font-family: var(--font-ui);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg) 60%);
+      background-attachment: fixed;
+    }
+
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(9, 13, 22, 0.7);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      cursor: pointer;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .logo-text {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.03em;
+    }
+
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .username-tag {
+      font-weight: 500;
+      font-size: 0.9rem;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.4rem 0.8rem;
+      border-radius: 30px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .username-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 2rem;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* View Switchers */
+    .view-section {
+      display: none;
+      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .view-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Auth Card View */
+    .auth-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 70vh;
+    }
+
+    .auth-card {
+      background: var(--surface);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 3rem 2.5rem;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .auth-header {
+      text-align: center;
+    }
+
+    .auth-title {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .auth-subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #cbd5e1;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    textarea {
+      background: rgba(10, 15, 30, 0.7);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--border-focus);
+      background: rgba(10, 15, 30, 0.9);
+    }
+
+    .auth-button {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 0.875rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .auth-button:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .auth-button:active {
+      transform: translateY(1px);
+    }
+
+    .auth-toggle-link {
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .auth-toggle-link span {
+      color: var(--primary);
+      cursor: pointer;
+      font-weight: 500;
+      text-decoration: underline;
+    }
+
+    .error-banner {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      display: none;
+      margin-bottom: 1rem;
+    }
+
+    /* Dashboard View */
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+
+    .dashboard-title {
+      font-family: var(--font-display);
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      border: none;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.15);
+    }
+
+    .btn-danger {
+      color: #f87171;
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .project-card {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .project-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .project-card:hover {
+      transform: translateY(-4px);
+      background: var(--surface-hover);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .project-card:hover::before {
+      opacity: 1;
+    }
+
+    .project-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .project-card-name {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .project-card-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .project-card-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: auto;
+    }
+
+    .project-card-btn {
+      flex: 1;
+      justify-content: center;
+      font-size: 0.85rem;
+      padding: 0.5rem 1rem;
+    }
+
+    .version-tag {
+      font-size: 0.75rem;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      grid-column: 1 / -1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    /* Modal Styling */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(2, 6, 23, 0.75);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .modal-content {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalSlideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-title {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.5rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+    }
+
+    /* Project Studio Console Grid */
+    .studio-container {
+      display: grid;
+      grid-template-columns: 280px 300px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 1.5rem;
+      height: calc(100vh - 140px);
+      min-height: 600px;
+    }
+
+    .studio-header {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .studio-breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .studio-breadcrumbs span.separator {
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    .studio-breadcrumbs span.active-proj {
+      color: var(--primary);
+    }
+
+    /* Panels */
+    .studio-panel {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      height: 100%;
+    }
+
+    .panel-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.9rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-content {
+      padding: 1rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    /* Left Panel: Versions Timeline */
+    .version-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .version-item {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .version-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .version-item.active {
+      background: rgba(99, 102, 241, 0.1);
+      border-color: var(--primary);
+    }
+
+    .version-item-title {
+      font-weight: 600;
+      font-size: 0.85rem;
+      display: flex;
+      justify-content: space-between;
+      color: var(--text);
+    }
+
+    .version-item-prompt {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .version-item-time {
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.3);
+      text-align: right;
+    }
+
+    /* Middle Panel: File Tree Explorer */
+    .file-explorer {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.6rem 0.8rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+
+    .file-item:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+    }
+
+    .file-item.active {
+      background: rgba(255, 255, 255, 0.08);
+      color: white;
+      font-weight: 500;
+    }
+
+    .file-item svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    /* Right Panel: Workspace split */
+    .workspace-split {
+      display: grid;
+      grid-template-rows: 1fr 200px;
+      gap: 1.5rem;
+      height: 100%;
+    }
+
+    .editor-container {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.5rem;
+      height: 100%;
+    }
+
+    .code-viewer-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .code-viewer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.3);
+    }
+
+    .code-filename {
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: #a5b4fc;
+    }
+
+    .code-viewer-content {
+      flex: 1;
+      padding: 1.25rem;
+      overflow: auto;
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      background: #020617;
+      color: #e2e8f0;
+      white-space: pre;
+      margin: 0;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+    }
+
+    .code-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      height: 100%;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 2rem;
+      background: rgba(2, 6, 23, 0.4);
+    }
+
+    /* Iteration Side Panel */
+    .iteration-panel {
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      height: 100%;
+    }
+
+    .iteration-title {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .iteration-textarea {
+      flex: 1;
+      min-height: 120px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    /* Bottom Terminal Panel: Logs */
+    .terminal-panel {
+      height: 100%;
+    }
+
+    .terminal-header {
+      background: rgba(2, 6, 23, 0.8);
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      color: #64748b;
+    }
+
+    .terminal-content {
+      background: #020617;
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: #94a3b8;
+      overflow-y: auto;
+      flex: 1;
+      height: calc(100% - 30px);
+    }
+
+    .log-row {
+      margin-bottom: 0.35rem;
+      word-break: break-all;
+    }
+    .log-row.info { color: #60a5fa; }
+    .log-row.success { color: #34d399; }
+    .log-row.error { color: #f87171; }
+    .log-row.timestamp { color: #475569; margin-right: 0.5rem; }
+
+    /* Loading Spinner Overlay */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(9, 13, 22, 0.8);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 1.5rem;
+      display: none;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(99, 102, 241, 0.1);
+      border-radius: 50%;
+      border-top: 4px solid var(--primary);
+      animation: spin 1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: #e2e8f0;
+    }
+
+    /* Segmented Tab Controller */
+    .viewer-tabs {
+      display: flex;
+      gap: 0.25rem;
+      background: rgba(2, 6, 23, 0.4);
+      padding: 0.25rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .tab-btn.active {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    }
+
+    /* Live Preview Panel and Chrome Mockup Frame */
+    .preview-panel-content {
+      background: rgba(10, 15, 30, 0.5);
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 400px;
+      overflow-y: auto;
+    }
+    .chrome-mock-frame {
+      width: 100%;
+      max-width: 380px;
+      background: #0f172a;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow), 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      animation: fadeIn 0.3s ease;
+    }
+    .chrome-mock-header {
+      background: #1e293b;
+      padding: 0.6rem 0.8rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .chrome-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .chrome-dot.red { background: #ef4444; }
+    .chrome-dot.yellow { background: #f59e0b; }
+    .chrome-dot.green { background: #10b981; }
+    .chrome-address-bar {
+      flex: 1;
+      margin: 0 1rem;
+      background: #090d16;
+      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chrome-refresh-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.2rem;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+    .chrome-refresh-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .chrome-iframe-wrapper {
+      width: 100%;
+      height: 450px;
+      background: #ffffff;
+      position: relative;
+    }
+    .chrome-mock-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #ffffff;
+    }
+    .preview-fallback-msg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 3rem 1.5rem;
+    }
+    .preview-fallback-msg span {
+      font-size: 0.95rem;
+      max-width: 280px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container" id="logoBtn">
+      <div class="logo-icon">e</div>
+      <div class="logo-text">Extensio.ai</div>
+    </div>
+    
+    <div class="user-menu" id="userMenu" style="display: none;">
+      <div class="username-tag">
+        <div class="username-dot"></div>
+        <span id="activeUsername">user</span>
+      </div>
+      <button class="btn" id="logoutBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        Sign Out
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- View 1: Auth (Login/Register) -->
+    <section class="view-section" id="viewAuth">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-header">
+            <h2 class="auth-title" id="authCardTitle">Sign In</h2>
+            <p class="auth-subtitle" id="authCardSubtitle">Connect your credentials to access the platform</p>
+          </div>
+          
+          <div class="error-banner" id="authErrorBanner"></div>
+
+          <form id="authForm">
+            <div class="form-group">
+              <label for="authUsername">Username</label>
+              <input type="text" id="authUsername" placeholder="e.g. extension_coder" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+              <label for="authPassword">Password</label>
+              <input type="password" id="authPassword" placeholder="••••••••" required autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="auth-button" id="authSubmitBtn" style="width: 100%; margin-top: 1rem;">
+              <span id="authSubmitText">Sign In</span>
+            </button>
+          </form>
+
+          <p class="auth-toggle-link" id="authToggleLink">
+            Don't have an account? <span id="authToggleAction">Create account</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- View 2: Dashboard -->
+    <section class="view-section" id="viewDashboard">
+      <div class="dashboard-header">
+        <h2 class="dashboard-title">Your Extensions</h2>
+        <button class="btn btn-primary" id="btnNewProject">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New Project
+        </button>
+      </div>
+
+      <div class="project-grid" id="projectGrid">
+        <!-- Dynmic content loaded here -->
+      </div>
+    </section>
+
+    <!-- View 3: Project Studio Console -->
+    <section class="view-section active" id="viewStudio" style="display: none;">
+      <div class="studio-container">
+        <div class="studio-header">
+          <div class="studio-breadcrumbs">
+            <span style="color: var(--text-muted); cursor: pointer;" id="crumbDashboard">Dashboard</span>
+            <span class="separator">/</span>
+            <span class="active-proj" id="crumbProjectName">Project Studio</span>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn" id="btnStudioRename">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"></path></svg>
+              Rename
+            </button>
+            <button class="btn btn-danger" id="btnStudioDelete">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <!-- Left Column: Version History Timeline -->
+        <div class="studio-panel">
+          <div class="panel-header">
+            <span>Version History</span>
+          </div>
+          <div class="panel-content">
+            <div class="version-timeline" id="versionTimeline">
+              <!-- Timeline items -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Middle Column: File Tree Explorer -->
+        <div class="studio-panel">
+          <div class="panel-header">
+            <span>Extension Files</span>
+          </div>
+          <div class="panel-content">
+            <div class="file-explorer" id="fileExplorer">
+              <!-- Files list -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Code Viewer & Iteration Split -->
+        <div class="workspace-split">
+          <div class="editor-container">
+            <!-- Code Viewer -->
+            <div class="studio-panel code-viewer-panel">
+              <div class="code-viewer-header">
+                <div class="viewer-tabs" style="margin-right: auto;">
+                  <button class="tab-btn active" id="tabCodeView">Code View</button>
+                  <button class="tab-btn" id="tabLivePreview">Live Preview</button>
+                </div>
+                <span class="code-filename" id="viewerFilename">no_file_selected</span>
+                <button class="btn" id="btnCopyCode" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <span id="copyBtnText">Copy</span>
+                </button>
+              </div>
+              <pre class="code-viewer-content" id="viewerContent"><div class="code-placeholder">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><polygon points="6 2 18 2 18 6 6 6 6 2"></polygon><rect x="3" y="6" width="18" height="16" rx="2"></rect><path d="M8 10h8"></path><path d="M8 14h8"></path><path d="M8 18h5"></path></svg>
+  <span>Select a file from the explorer to view its contents.</span>
+</div></pre>
+              
+              <!-- Live Preview Workspace -->
+              <div class="preview-panel-content" id="previewContainer" style="display: none;">
+                <div class="chrome-mock-frame" id="chromeMockFrame">
+                  <div class="chrome-mock-header">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                      <div class="chrome-dot red"></div>
+                      <div class="chrome-dot yellow"></div>
+                      <div class="chrome-dot green"></div>
+                    </div>
+                    <div class="chrome-address-bar">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.25rem;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      <span id="previewUrlText">extensio://sandbox/popup.html</span>
+                    </div>
+                    <button class="chrome-refresh-btn" id="btnRefreshPreview" title="Refresh Live Preview">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                    </button>
+                  </div>
+                  <div class="chrome-iframe-wrapper">
+                    <iframe class="chrome-mock-iframe" id="previewIframe" sandbox="allow-scripts allow-popups allow-forms allow-same-origin"></iframe>
+                  </div>
+                </div>
+                <div class="preview-fallback-msg" id="previewFallbackMsg" style="display: none;">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  <span>No <code>popup.html</code> found in this version.<br><small style="color: var(--text-muted); margin-top: 0.5rem; display: block;">Live previews require an HTML popup interface.</small></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Iteration Controls -->
+            <div class="studio-panel">
+              <div class="panel-header">
+                <span>Modify Codebase</span>
+                <button class="btn btn-primary" id="btnDownloadZip" style="padding: 0.35rem 0.8rem; font-size: 0.8rem;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Download ZIP
+                </button>
+              </div>
+              <div class="iteration-panel">
+                <span class="iteration-title">Describe modifications:</span>
+                <textarea class="iteration-textarea" id="iterationPrompt" placeholder="e.g., Make the background of popup light yellow and change the button font size to 14px."></textarea>
+                <button class="btn btn-primary" id="btnIterate" style="justify-content: center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                  Iterate Extension
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Terminal Output -->
+          <div class="studio-panel terminal-panel">
+            <div class="terminal-header">
+              <span>REAL-TIME PIPELINE TRACE LOGS</span>
+              <span id="terminalStatus">IDLE</span>
+            </div>
+            <div class="terminal-content" id="terminalLogs">
+              <div class="log-row info">Console initialized. Ready for commands.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modals -->
+  <!-- 1. New Project Modal -->
+  <div class="modal-backdrop" id="modalNewProject">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Create New Extension</h3>
+        <button class="modal-close" id="btnCloseNewProject">&times;</button>
+      </div>
+      <form id="newProjectForm">
+        <div class="form-group">
+          <label for="newProjectName">Project Name</label>
+          <input type="text" id="newProjectName" placeholder="e.g. Clipboard Ninja" required>
+        </div>
+        <div class="form-group">
+          <label for="newProjectPrompt">Description / Requirements</label>
+          <textarea id="newProjectPrompt" placeholder="Describe in detail what your extension should do. e.g. A popup window that displays the user's latest 5 copied text segments from the clipboard, using local storage." required style="min-height: 120px;"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelNewProject">Cancel</button>
+          <button type="submit" class="btn btn-primary">Generate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. Rename Project Modal -->
+  <div class="modal-backdrop" id="modalRenameProject">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Rename Project</h3>
+        <button class="modal-close" id="btnCloseRename">&times;</button>
+      </div>
+      <form id="renameForm">
+        <div class="form-group">
+          <label for="renameInput">New Project Name</label>
+          <input type="text" id="renameInput" placeholder="e.g. Tab Master Extreme" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnCancelRename">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Processing request...</div>
+  </div>
+
+  <script>
+    // --- Global Application State ---
+    let currentUser = null;
+    let projects = [];
+    let activeProject = null;
+    let activeVersion = null;
+    let activeFile = null;
+    
+    let isRegistering = false; // Toggle login / register state
+
+    // --- DOM Elements ---
+    const logoBtn = document.getElementById('logoBtn');
+    const userMenu = document.getElementById('userMenu');
+    const activeUsername = document.getElementById('activeUsername');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const crumbDashboard = document.getElementById('crumbDashboard');
+    const crumbProjectName = document.getElementById('crumbProjectName');
+
+    const viewAuth = document.getElementById('viewAuth');
+    const viewDashboard = document.getElementById('viewDashboard');
+    const viewStudio = document.getElementById('viewStudio');
+
+    const authForm = document.getElementById('authForm');
+    const authUsername = document.getElementById('authUsername');
+    const authPassword = document.getElementById('authPassword');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    const authSubmitText = document.getElementById('authSubmitText');
+    const authCardTitle = document.getElementById('authCardTitle');
+    const authCardSubtitle = document.getElementById('authCardSubtitle');
+    const authToggleLink = document.getElementById('authToggleLink');
+    const authToggleAction = document.getElementById('authToggleAction');
+    const authErrorBanner = document.getElementById('authErrorBanner');
+
+    const projectGrid = document.getElementById('projectGrid');
+    const btnNewProject = document.getElementById('btnNewProject');
+
+    const versionTimeline = document.getElementById('versionTimeline');
+    const fileExplorer = document.getElementById('fileExplorer');
+    const viewerFilename = document.getElementById('viewerFilename');
+    const viewerContent = document.getElementById('viewerContent');
+    const btnCopyCode = document.getElementById('btnCopyCode');
+    const copyBtnText = document.getElementById('copyBtnText');
+    const iterationPrompt = document.getElementById('iterationPrompt');
+    const btnIterate = document.getElementById('btnIterate');
+    const btnDownloadZip = document.getElementById('btnDownloadZip');
+    const btnStudioRename = document.getElementById('btnStudioRename');
+    const btnStudioDelete = document.getElementById('btnStudioDelete');
+
+    const terminalLogs = document.getElementById('terminalLogs');
+    const terminalStatus = document.getElementById('terminalStatus');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loadingText = document.getElementById('loadingText');
+
+    // Live Preview elements
+    const tabCodeView = document.getElementById('tabCodeView');
+    const tabLivePreview = document.getElementById('tabLivePreview');
+    const previewContainer = document.getElementById('previewContainer');
+    const chromeMockFrame = document.getElementById('chromeMockFrame');
+    const previewIframe = document.getElementById('previewIframe');
+    const previewFallbackMsg = document.getElementById('previewFallbackMsg');
+    const btnRefreshPreview = document.getElementById('btnRefreshPreview');
+
+    // Modals
+    const modalNewProject = document.getElementById('modalNewProject');
+    const btnCloseNewProject = document.getElementById('btnCloseNewProject');
+    const btnCancelNewProject = document.getElementById('btnCancelNewProject');
+    const newProjectForm = document.getElementById('newProjectForm');
+
+    const modalRenameProject = document.getElementById('modalRenameProject');
+    const btnCloseRename = document.getElementById('btnCloseRename');
+    const btnCancelRename = document.getElementById('btnCancelRename');
+    const renameForm = document.getElementById('renameForm');
+
+    // --- Helper: View Navigation ---
+    function showView(viewId) {
+      document.querySelectorAll('.view-section').forEach(view => {
+        view.classList.remove('active');
+        view.style.display = 'none';
+      });
+      const targetView = document.getElementById(viewId);
+      targetView.classList.add('active');
+      targetView.style.display = 'block';
+    }
+
+    // --- Helper: Loading Indicator ---
+    function showLoading(text = 'Processing...') {
+      loadingText.textContent = text;
+      loadingOverlay.style.display = 'flex';
+    }
+
+    function hideLoading() {
+      loadingOverlay.style.display = 'none';
+    }
+
+    // --- Helper: Console Tracing ---
+    function addTerminalLog(message, type = 'info') {
+      const row = document.createElement('div');
+      row.className = `log-row ${type}`;
+      
+      const tsSpan = document.createElement('span');
+      tsSpan.className = 'log-row timestamp';
+      tsSpan.textContent = `[${new Date().toLocaleTimeString([], { hour12: false })}]`;
+
+      const msgSpan = document.createElement('span');
+      msgSpan.textContent = message;
+
+      row.appendChild(tsSpan);
+      row.appendChild(msgSpan);
+      terminalLogs.appendChild(row);
+      terminalLogs.scrollTop = terminalLogs.scrollHeight;
+    }
+
+    function setTerminalStatus(status, color = '#64748b') {
+      terminalStatus.textContent = status.toUpperCase();
+      terminalStatus.style.color = color;
+    }
+
+    // --- Authentication Actions ---
+    async function checkAuthOnBoot() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const data = await response.json();
+          handleLoginSuccess(data.user);
+        } else {
+          showView('viewAuth');
+        }
+      } catch (err) {
+        showView('viewAuth');
+      }
+    }
+
+    function handleLoginSuccess(user) {
+      currentUser = user;
+      activeUsername.textContent = user.username;
+      userMenu.style.display = 'flex';
+      loadUserProjects();
+      showView('viewDashboard');
+    }
+
+    // Toggle Registration Mode
+    function handleToggleAuth() {
+      isRegistering = !isRegistering;
+      authErrorBanner.style.display = 'none';
+      if (isRegistering) {
+        authCardTitle.textContent = 'Create Account';
+        authCardSubtitle.textContent = 'Access the AI Extension Dev Sandbox';
+        authSubmitText.textContent = 'Register';
+        authToggleLink.innerHTML = 'Already have an account? <span id="authToggleAction">Sign In</span>';
+      } else {
+        authCardTitle.textContent = 'Sign In';
+        authCardSubtitle.textContent = 'Connect your credentials to access the platform';
+        authSubmitText.textContent = 'Sign In';
+        authToggleLink.innerHTML = 'Don\'t have an account? <span id="authToggleAction">Create account</span>';
+      }
+      
+      // Rebind toggle event listener because outerHTML replaces the element
+      document.getElementById('authToggleAction').addEventListener('click', handleToggleAuth);
+    }
+
+    authToggleAction.addEventListener('click', handleToggleAuth);
+
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authErrorBanner.style.display = 'none';
+      
+      const username = authUsername.value.trim();
+      const password = authPassword.value;
+
+      if (!username || !password) return;
+
+      const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
+      showLoading(isRegistering ? 'Registering...' : 'Authenticating...');
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Authentication failed');
+        }
+
+        authUsername.value = '';
+        authPassword.value = '';
+        handleLoginSuccess(data.user);
+      } catch (err) {
+        authErrorBanner.textContent = err.message;
+        authErrorBanner.style.display = 'block';
+      } finally {
+        hideLoading();
+      }
+    });
+
+    logoutBtn.addEventListener('click', async () => {
+      showLoading('Signing out...');
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        currentUser = null;
+        userMenu.style.display = 'none';
+        showView('viewAuth');
+      } catch (err) {
+        console.error('Logout error:', err);
+      } finally {
+        hideLoading();
+      }
+    });
+
+    // --- Dashboard & Project Actions ---
+    async function loadUserProjects() {
+      try {
+        const response = await fetch('/api/projects');
+        if (!response.ok) throw new Error('Failed to fetch projects');
+        projects = await response.json();
+        renderProjects();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderProjects() {
+      projectGrid.innerHTML = '';
+
+      if (projects.length === 0) {
+        projectGrid.innerHTML = `
+          <div class="empty-state">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+            <div>
+              <h3>No projects found</h3>
+              <p style="color: var(--text-muted); margin-top: 0.25rem;">Create a new project using the button below to get started.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openNewProjectModal()">Create Project</button>
+          </div>
+        `;
+        return;
+      }
+
+      projects.forEach(project => {
+        const card = document.createElement('div');
+        card.className = 'project-card';
+
+        const updated = new Date(project.updatedAt).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        const latestVersion = project.versions[project.versions.length - 1];
+
+        card.innerHTML = `
+          <div class="project-card-header">
+            <div class="project-card-name">${escapeHTML(project.projectName)}</div>
+            <span class="version-tag">v${project.versions.length}</span>
+          </div>
+          <div class="project-card-meta">
+            <span style="color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;" title="${escapeHTML(latestVersion?.prompt || '')}">
+              <strong>Prompt:</strong> ${escapeHTML(latestVersion?.prompt || 'No prompt info')}
+            </span>
+            <span style="margin-top: 0.5rem;"><strong>Updated:</strong> ${updated}</span>
+          </div>
+          <div class="project-card-actions">
+            <button class="btn btn-primary project-card-btn" onclick="openProjectStudio('${project._id}')">Open Studio</button>
+            <button class="btn btn-danger" style="padding: 0.5rem;" onclick="confirmDeleteProject('${project._id}', '${escapeJS(project.projectName)}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        `;
+        projectGrid.appendChild(card);
+      });
+    }
+
+    // Modal Control: New Project
+    function openNewProjectModal() {
+      modalNewProject.style.display = 'flex';
+      document.getElementById('newProjectName').focus();
+    }
+
+    function closeNewProjectModal() {
+      modalNewProject.style.display = 'none';
+      newProjectForm.reset();
+    }
+
+    btnNewProject.addEventListener('click', openNewProjectModal);
+    btnCloseNewProject.addEventListener('click', closeNewProjectModal);
+    btnCancelNewProject.addEventListener('click', closeNewProjectModal);
+
+    newProjectForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const projectName = document.getElementById('newProjectName').value.trim();
+      const prompt = document.getElementById('newProjectPrompt').value.trim();
+
+      if (!projectName || !prompt) return;
+
+      closeNewProjectModal();
+      showLoading('Generating initial codebase...');
+
+      try {
+        const response = await fetch('/api/extensions/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectName, prompt })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) throw new Error(data.error || 'Failed to generate project.');
+
+        // Load project inside Studio Console directly!
+        openProjectStudio(data.projectId);
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        hideLoading();
+      }
+    });
+
+    // Delete Project
+    async function confirmDeleteProject(id, name) {
+      if (confirm(`Are you absolutely sure you want to delete "${name}"?\nThis will permanently delete all ${projects.find(p=>p._id===id)?.versions.length || 1} versions and cannot be undone.`)) {
+        showLoading('Deleting project...');
+        try {
+          const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('Delete failed.');
+          await loadUserProjects();
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          hideLoading();
+        }
+      }
+    }
+
+    // --- Project Studio Actions ---
+    async function openProjectStudio(projectId) {
+      showLoading('Opening Project Studio...');
+      try {
+        const response = await fetch(`/api/projects/${projectId}`);
+        if (!response.ok) throw new Error('Access denied or project not found.');
+        
+        activeProject = await response.json();
+        
+        // Render Breadcrumbs & details
+        crumbProjectName.textContent = activeProject.projectName;
+        
+        // Initialize timeline and file tree using the latest version
+        renderVersionTimeline();
+        selectVersion(activeProject.versions[activeProject.versions.length - 1].versionId);
+        
+        // Reset terminal logs
+        terminalLogs.innerHTML = '';
+        addTerminalLog(`Opened project console for: "${activeProject.projectName}"`, 'success');
+        addTerminalLog(`Total versions: ${activeProject.versions.length}. Ready.`, 'info');
+        setTerminalStatus('idle');
+
+        showView('viewStudio');
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function renderVersionTimeline() {
+      versionTimeline.innerHTML = '';
+      
+      // Chronological timeline
+      activeProject.versions.forEach((version, index) => {
+        const item = document.createElement('div');
+        item.className = 'version-item';
+        item.id = `vitem-${version.versionId}`;
+        item.onclick = () => selectVersion(version.versionId);
+
+        const time = new Date(version.timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        const date = new Date(version.timestamp).toLocaleDateString([], {
+          month: 'short',
+          day: 'numeric'
+        });
+
+        item.innerHTML = `
+          <div class="version-item-title">
+            <span>Version ${index + 1}</span>
+            <span style="font-weight: 400; font-size: 0.75rem; color: var(--text-muted);">${date}</span>
+          </div>
+          <div class="version-item-prompt" title="${escapeHTML(version.prompt)}">${escapeHTML(version.prompt)}</div>
+          <div class="version-item-time">${time}</div>
+        `;
+        versionTimeline.appendChild(item);
+      });
+    }
+
+    function selectVersion(versionId) {
+      activeVersion = activeProject.versions.find(v => v.versionId === versionId);
+      
+      // Update UI active state in timeline
+      document.querySelectorAll('.version-item').forEach(item => item.classList.remove('active'));
+      const activeEl = document.getElementById(`vitem-${versionId}`);
+      if (activeEl) activeEl.classList.add('active');
+
+      renderFileExplorer();
+      resetCodeViewer();
+      
+      // Hot-reload live preview if Live Preview tab is active
+      if (tabLivePreview.classList.contains('active')) {
+        updateLivePreview();
+      }
+    }
+
+    function renderFileExplorer() {
+      fileExplorer.innerHTML = '';
+      
+      // Mongoose Map returns files as a standard object or Map structure
+      const filesKeys = activeVersion.files instanceof Map
+        ? Array.from(activeVersion.files.keys())
+        : Object.keys(activeVersion.files);
+
+      filesKeys.forEach(filename => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.id = `file-${filename.replace(/\./g, '-')}`;
+        fileItem.onclick = () => selectFile(filename);
+
+        // Icon based on extension
+        let iconSvg = '';
+        if (filename.endsWith('.json')) {
+          iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+        } else if (filename.endsWith('.js')) {
+          iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+        } else if (filename.endsWith('.html')) {
+          iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+        } else {
+          iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`;
+        }
+
+        fileItem.innerHTML = `${iconSvg} <span>${escapeHTML(filename)}</span>`;
+        fileExplorer.appendChild(fileItem);
+      });
+
+      // Default select manifest.json if exists
+      if (filesKeys.includes('manifest.json')) {
+        selectFile('manifest.json');
+      }
+    }
+
+    function selectFile(filename) {
+      activeFile = filename;
+      document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
+      
+      const fileEl = document.getElementById(`file-${filename.replace(/\./g, '-')}`);
+      if (fileEl) fileEl.classList.add('active');
+
+      viewerFilename.textContent = filename;
+
+      // Extract content from Map or standard object
+      const codeText = activeVersion.files instanceof Map
+        ? activeVersion.files.get(filename)
+        : activeVersion.files[filename];
+
+      viewerContent.textContent = codeText || '';
+      
+      // Auto-activate code view tab when selecting a file
+      activateCodeViewTab();
+    }
+
+    function resetCodeViewer() {
+      activeFile = null;
+      viewerFilename.textContent = 'no_file_selected';
+      viewerContent.innerHTML = `
+        <div class="code-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><polygon points="6 2 18 2 18 6 6 6 6 2"></polygon><rect x="3" y="6" width="18" height="16" rx="2"></rect><path d="M8 10h8"></path><path d="M8 14h8"></path><path d="M8 18h5"></path></svg>
+          <span>Select a file from the explorer to view its contents.</span>
+        </div>
+      `;
+      btnCopyCode.style.display = 'none';
+    }
+
+    // Copy Code to Clipboard
+    btnCopyCode.addEventListener('click', () => {
+      if (!activeFile) return;
+
+      const codeText = activeVersion.files instanceof Map
+        ? activeVersion.files.get(activeFile)
+        : activeVersion.files[activeFile];
+
+      navigator.clipboard.writeText(codeText || '').then(() => {
+        copyBtnText.textContent = 'Copied!';
+        setTimeout(() => {
+          copyBtnText.textContent = 'Copy';
+        }, 2000);
+      });
+    });
+
+    // Download ZIP for selected version
+    btnDownloadZip.addEventListener('click', () => {
+      if (!activeProject || !activeVersion) return;
+      
+      const downloadUrl = `/api/projects/${activeProject._id}/versions/${activeVersion.versionId}/download`;
+      
+      // Trace terminal log
+      addTerminalLog(`Dynamic on-the-fly zip packaging requested for version: "${activeVersion.versionId}"`, 'info');
+      addTerminalLog(`Initiating download...`, 'success');
+
+      window.location.href = downloadUrl;
+    });
+
+    // Code Iteration Trigger
+    btnIterate.addEventListener('click', async () => {
+      const prompt = iterationPrompt.value.trim();
+      if (!prompt || !activeProject) return;
+
+      iterationPrompt.value = '';
+      
+      // Reset log display and scroll to bottom
+      terminalLogs.innerHTML = '';
+      addTerminalLog(`Starting modification pipeline for: "${activeProject.projectName}"`, 'info');
+      addTerminalLog(`Iteration prompt: "${prompt}"`, 'info');
+      addTerminalLog(`Submitting codebase and editing instructions to AI...`, 'info');
+      
+      btnIterate.disabled = true;
+      setTerminalStatus('compiling', 'var(--accent)');
+      showLoading('Iterating and compiling new codebase...');
+
+      try {
+        const response = await fetch('/api/extensions/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: activeProject._id,
+            projectName: activeProject.projectName,
+            prompt: prompt
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) throw new Error(data.error || 'Failed to iterate project.');
+
+        // Successfully updated! Re-render everything
+        activeProject = data.project;
+        
+        addTerminalLog(`Successfully merged AI code changes!`, 'success');
+        addTerminalLog(`Automatic manifest_version Validation check passed.`, 'success');
+        addTerminalLog(`Generated ${data.fileList.length} files successfully:`, 'info');
+        data.fileList.forEach(file => {
+          const kb = (file.size / 1024).toFixed(1);
+          addTerminalLog(`  ↳ ${file.name} (${kb} KB)`, 'info');
+        });
+        addTerminalLog(`Committed to MongoDB as Version ${activeProject.versions.length}!`, 'success');
+        setTerminalStatus('idle');
+
+        renderVersionTimeline();
+        selectVersion(data.versionId);
+
+      } catch (err) {
+        addTerminalLog(`Compilation Failed: ${err.message}`, 'error');
+        setTerminalStatus('failed', 'var(--error)');
+        alert(err.message);
+      } finally {
+        btnIterate.disabled = false;
+        hideLoading();
+      }
+    });
+
+    // Rename project from Studio
+    btnStudioRename.addEventListener('click', () => {
+      if (!activeProject) return;
+      document.getElementById('renameInput').value = activeProject.projectName;
+      modalRenameProject.style.display = 'flex';
+      document.getElementById('renameInput').focus();
+    });
+
+    function closeRenameModal() {
+      modalRenameProject.style.display = 'none';
+      renameForm.reset();
+    }
+
+    btnCloseRename.addEventListener('click', closeRenameModal);
+    btnCancelRename.addEventListener('click', closeRenameModal);
+
+    renameForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newName = document.getElementById('renameInput').value.trim();
+      if (!newName || !activeProject) return;
+
+      closeRenameModal();
+      showLoading('Renaming project...');
+
+      try {
+        const response = await fetch(`/api/projects/${activeProject._id}/rename`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectName: newName })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) throw new Error(data.error || 'Rename failed.');
+
+        activeProject.projectName = data.projectName;
+        crumbProjectName.textContent = activeProject.projectName;
+        
+        addTerminalLog(`Project successfully renamed to "${data.projectName}"`, 'success');
+        loadUserProjects(); // Reload list for when we return to dashboard
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        hideLoading();
+      }
+    });
+
+    // Delete project from Studio
+    btnStudioDelete.addEventListener('click', async () => {
+      if (!activeProject) return;
+      
+      if (confirm(`Are you absolutely sure you want to delete "${activeProject.projectName}"?\nThis will permanently delete all versions and cannot be undone.`)) {
+        showLoading('Deleting project...');
+        try {
+          const response = await fetch(`/api/projects/${activeProject._id}`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('Delete failed.');
+          
+          await loadUserProjects();
+          showView('viewDashboard');
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          hideLoading();
+        }
+      }
+    });
+
+    // Return to dashboard
+    crumbDashboard.addEventListener('click', () => {
+      activeProject = null;
+      activeVersion = null;
+      activeFile = null;
+      loadUserProjects();
+      showView('viewDashboard');
+    });
+
+    logoBtn.addEventListener('click', () => {
+      if (currentUser) {
+        activeProject = null;
+        activeVersion = null;
+        activeFile = null;
+        loadUserProjects();
+        showView('viewDashboard');
+      } else {
+        showView('viewAuth');
+      }
+    });
+
+    // --- Live Extension Preview Toggling & Serving ---
+    function activateCodeViewTab() {
+      tabCodeView.classList.add('active');
+      tabLivePreview.classList.remove('active');
+      viewerContent.style.display = 'block';
+      viewerFilename.style.display = 'inline';
+      btnCopyCode.style.display = activeFile ? 'inline-flex' : 'none';
+      previewContainer.style.display = 'none';
+    }
+
+    function activateLivePreviewTab() {
+      tabLivePreview.classList.add('active');
+      tabCodeView.classList.remove('active');
+      viewerContent.style.display = 'none';
+      viewerFilename.style.display = 'none';
+      btnCopyCode.style.display = 'none';
+      previewContainer.style.display = 'flex';
+      updateLivePreview();
+    }
+
+    function updateLivePreview() {
+      if (!activeProject || !activeVersion) return;
+
+      const filesKeys = activeVersion.files instanceof Map
+        ? Array.from(activeVersion.files.keys())
+        : Object.keys(activeVersion.files);
+
+      const hasPopup = filesKeys.includes('popup.html');
+
+      if (hasPopup) {
+        const previewUrl = `/api/projects/${activeProject._id}/versions/${activeVersion.versionId}/preview/popup.html`;
+        
+        // Show simulated chrome frame
+        chromeMockFrame.style.display = 'flex';
+        previewFallbackMsg.style.display = 'none';
+        
+        // Set source
+        previewIframe.src = previewUrl;
+        addTerminalLog(`Loading Live Extension Preview popup window (Version ID: ${activeVersion.versionId})`, 'info');
+      } else {
+        previewIframe.removeAttribute('src');
+        chromeMockFrame.style.display = 'none';
+        previewFallbackMsg.style.display = 'flex';
+        addTerminalLog('Live Preview unavailable: no "popup.html" interface found in this version.', 'error');
+      }
+    }
+
+    // Event listeners for Live Extension Preview
+    tabCodeView.addEventListener('click', activateCodeViewTab);
+    tabLivePreview.addEventListener('click', activateLivePreviewTab);
+    
+    btnRefreshPreview.addEventListener('click', () => {
+      if (previewIframe.src) {
+        addTerminalLog("Refreshing Live Preview popup environment...", "info");
+        const currentSrc = previewIframe.src;
+        previewIframe.src = ''; // Clear source to force reload
+        previewIframe.src = currentSrc;
+      }
+    });
+
+    // --- HTML/JS Utilities ---
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str.replace(/[&<>'"]/g, 
+        tag => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          "'": '&#39;',
+          '"': '&quot;'
+        }[tag] || tag)
+      );
+    }
+
+    function escapeJS(str) {
+      if (!str) return '';
+      return str.replace(/['"\\\n\r\t]/g, 
+        char => ({
+          "'": "\\'",
+          '"': '\\"',
+          '\\': '\\\\',
+          '\n': '\\n',
+          '\r': '\\r',
+          '\t': '\\t'
+        }[char] || char)
+      );
+    }
+
+    // --- Boot sequence ---
+    checkAuthOnBoot();
+
+  </script>
+</body>
+</html>

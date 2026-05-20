@@ -1,54 +1,112 @@
-import fs from "fs/promises";
-import path from "path";
+import Project from "../models/Project.js";
 import { v4 as uuidv4 } from "uuid";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECTS_FILE = path.join(__dirname, "..", "data", "projects.json");
-
-async function readProjects() {
+/**
+ * Lists all projects for a specific user.
+ * Optimizes performance by omitting the massive files field of each version in the list.
+ * @param {string} userId - User's MongoDB ObjectId
+ * @returns {Promise<Array>} List of user projects
+ */
+export async function listProjects(userId) {
   try {
-    const raw = await fs.readFile(PROJECTS_FILE, "utf8");
-    return JSON.parse(raw);
-  } catch {
+    return await Project.find({ userId }, { "versions.files": 0 }).sort({ updatedAt: -1 });
+  } catch (error) {
+    console.error("[projectService/listProjects] error:", error);
     return [];
   }
 }
 
-async function writeProjects(projects) {
-  await fs.mkdir(path.dirname(PROJECTS_FILE), { recursive: true });
-  await fs.writeFile(PROJECTS_FILE, JSON.stringify(projects, null, 2), "utf8");
+/**
+ * Gets a specific project for a user by project ID, including all file contents.
+ * @param {string} id - Project ObjectId
+ * @param {string} userId - User ObjectId
+ * @returns {Promise<object|null>} The Project document or null
+ */
+export async function getProject(id, userId) {
+  try {
+    return await Project.findOne({ _id: id, userId });
+  } catch (error) {
+    console.error("[projectService/getProject] error:", error);
+    return null;
+  }
 }
 
-export async function listProjects() {
-  return await readProjects();
-}
-
-export async function getProject(id) {
-  const projects = await readProjects();
-  return projects.find((project) => project.id === id) ?? null;
-}
-
-export async function saveProject(payload) {
-  const projects = await readProjects();
+/**
+ * Saves a new project or appends a new code version to an existing project.
+ * @param {object} payload - { id, userId, projectName, prompt, files }
+ * @returns {Promise<object>} The updated/created Project document
+ */
+export async function saveProject({ id, userId, projectName, prompt, files }) {
   const time = new Date().toISOString();
-  const project = {
-    id: payload.id || uuidv4(),
-    projectName: payload.projectName,
-    prompt: payload.prompt,
-    files: payload.files,
-    updatedAt: time,
-    createdAt: payload.id ? projects.find((item) => item.id === payload.id)?.createdAt || time : time,
+  const versionId = uuidv4();
+
+  const newVersion = {
+    versionId,
+    timestamp: time,
+    prompt,
+    files, // Mongoose maps this object automatically to a Map of Strings
   };
 
-  const existingIndex = projects.findIndex((item) => item.id === project.id);
-  if (existingIndex >= 0) {
-    projects[existingIndex] = project;
-  } else {
-    projects.unshift(project);
-  }
+  try {
+    if (id) {
+      // Find existing project and verify user ownership
+      const project = await Project.findOne({ _id: id, userId });
+      if (!project) {
+        throw new Error("Project not found or access denied.");
+      }
 
-  await writeProjects(projects);
-  return project;
+      project.projectName = projectName; // Allow updates to the project name
+      project.versions.push(newVersion);
+      await project.save();
+      return project;
+    } else {
+      // Create a brand new project
+      const project = new Project({
+        userId,
+        projectName,
+        versions: [newVersion],
+      });
+      await project.save();
+      return project;
+    }
+  } catch (error) {
+    console.error("[projectService/saveProject] error:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Renames a project for a specific user.
+ * @param {string} id - Project ObjectId
+ * @param {string} newName - New name for the project
+ * @param {string} userId - User ObjectId
+ * @returns {Promise<object|null>} The updated Project document
+ */
+export async function renameProject(id, newName, userId) {
+  try {
+    return await Project.findOneAndUpdate(
+      { _id: id, userId },
+      { projectName: newName },
+      { new: true }
+    );
+  } catch (error) {
+    console.error("[projectService/renameProject] error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a project for a specific user.
+ * @param {string} id - Project ObjectId
+ * @param {string} userId - User ObjectId
+ * @returns {Promise<boolean>} True if deleted successfully, false otherwise
+ */
+export async function deleteProject(id, userId) {
+  try {
+    const result = await Project.deleteOne({ _id: id, userId });
+    return result.deletedCount > 0;
+  } catch (error) {
+    console.error("[projectService/deleteProject] error:", error);
+    return false;
+  }
 }

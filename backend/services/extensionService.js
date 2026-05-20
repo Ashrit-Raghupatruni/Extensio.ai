@@ -4,11 +4,12 @@ import path from "path";
 import archiver from "archiver";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { validateExtensionOutput } from "../utils/validateExtensionOutput.js";
 import { sanitizeFilename, safePath } from "../utils/fileUtils.js";
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DOWNLOADS_DIR = path.join(__dirname, "..", "downloads");
@@ -19,34 +20,21 @@ await fs.mkdir(TMP_DIR, { recursive: true });
 
 const systemPrompt = `You are Extensio.ai, a Chrome Extension code generator. Your job is to generate complete, working Chrome extensions from user prompts.
 
-RESPONSE FORMAT:
-Respond ONLY with a valid JSON object mapping filenames to file contents. No markdown, no explanations, no code fences — just pure JSON.
-
-Example format:
-{
-  "manifest.json": "{...}",
-  "popup.html": "<html>...</html>",
-  "popup.js": "...",
-  "content.js": "...",
-  "styles.css": "..."
-}
+You must output a JSON object containing a "files" array of objects with "filename" and "content" keys. Do not include markdown code fences or any conversational text.
 
 RULES:
-1. manifest.json is REQUIRED and must be valid JSON with manifest_version: 3.
+1. manifest.json is REQUIRED and must be valid stringified JSON with manifest_version: 3.
 2. Generate ALL files needed for the extension to work — popup HTML/JS/CSS, content scripts, background service workers, options pages, etc.
 3. Use only standard Chrome Extension APIs (Manifest V3). No external CDNs.
 4. Always include a popup.html with a clean, styled UI unless the user explicitly asks otherwise.
 5. Include inline CSS or a separate styles.css for polished visual design.
-6. All file content must be strings (even manifest.json — it will be a stringified JSON).
-7. Keep code clean, functional, and well-structured.
-8. If the extension needs permissions, declare them properly in manifest.json.
-9. Use service_worker for background scripts (Manifest V3 requirement).
-10. Ensure popup.html references any popup.js and styles.css files you generate.
+6. Keep code clean, functional, and well-structured.
+7. If the extension needs permissions, declare them properly in manifest.json.
+8. Use service_worker for background scripts (Manifest V3 requirement).
+9. Ensure popup.html references any popup.js and styles.css files you generate.
 
 ALLOWED FILENAMES:
-manifest.json, popup.html, popup.js, popup.css, content.js, content.css, background.js, options.html, options.js, options.css, styles.css, and any icon files like icons/icon16.png, icons/icon48.png, icons/icon128.png.
-
-IMPORTANT: Your entire response must be parseable by JSON.parse(). Do NOT wrap in code fences or add any text outside the JSON object.`;
+manifest.json, popup.html, popup.js, popup.css, content.js, content.css, background.js, options.html, options.js, options.css, styles.css, and any icon files like icons/icon16.png, icons/icon48.png, icons/icon128.png.`;
 
 /**
  * Extracts JSON from LLM response text, handling cases where the model
@@ -91,58 +79,159 @@ function extractJSON(rawText) {
 }
 
 /**
- * Generates a Chrome extension from a prompt, writes files to a temp directory,
- * packages them into a ZIP, and returns a download URL.
+ * Generates a Chrome extension from a prompt (and optional previousFiles to modify),
+ * writes files to a temp directory, packages them into a ZIP, and returns a download URL.
  *
- * @param {string} prompt - User's extension description
+ * @param {string} prompt - User's extension description or iteration prompt
  * @param {string} projectName - Name for the project/extension
+ * @param {object} previousFiles - Existing project files map { filename: content }
  * @returns {object} { downloadUrl, projectId, files, fileList }
  */
-async function generateExtensionZip(prompt, projectName) {
-  console.log(`[generate] Starting generation for: "${projectName}"`);
+async function generateExtensionZip(prompt, projectName, previousFiles = null) {
+  console.log(`[generate] Starting generation/iteration for: "${projectName}"`);
   console.log(`[generate] Prompt: "${prompt.slice(0, 100)}..."`);
+  if (previousFiles) {
+    console.log(`[generate] Modification mode activated. Existing file count: ${Object.keys(previousFiles).length || previousFiles.size}`);
+  }
 
   let rawText = "";
 
-  if (!openai) {
-    console.log(`[generate] MOCK MODE: OpenAI API key missing. Generating mock extension.`);
-    const mockOutput = {
-      "manifest.json": JSON.stringify({
-        manifest_version: 3,
-        name: projectName,
-        version: "1.0.0",
-        description: `Generated from prompt: ${prompt}`,
-        action: { default_popup: "popup.html" },
-        permissions: ["activeTab", "storage"]
-      }, null, 2),
-      "popup.html": `<!DOCTYPE html>
+  if (!genAI) {
+    console.log(`[generate] MOCK MODE: Gemini API key missing. Performing mock generation/iteration.`);
+    
+    if (previousFiles) {
+      // 1. Iteration Mode in Mock Setup
+      const updatedFiles = {};
+      
+      // Handle Mongoose Map or standard JS object
+      const filesObj = typeof previousFiles.entries === "function" 
+        ? Object.fromEntries(previousFiles) 
+        : previousFiles;
+
+      for (const [filename, fileBody] of Object.entries(filesObj)) {
+        updatedFiles[filename] = fileBody;
+      }
+
+      // Check if prompt contains color names
+      const colors = ["blue", "green", "purple", "yellow", "orange", "black", "violet", "pink", "teal", "cyan", "red", "indigo"];
+      let foundColor = null;
+      for (const color of colors) {
+        if (prompt.toLowerCase().includes(color)) {
+          foundColor = color;
+          break;
+        }
+      }
+
+      // Modify HTML styled button if color found
+      if (updatedFiles["popup.html"]) {
+        if (foundColor) {
+          updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+            /background-color:\s*[^;"]+/g,
+            `background-color: ${foundColor}`
+          );
+        }
+        
+        // Update description paragraph
+        updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+          /<p id="desc">[\s\S]*?<\/p>/g,
+          `<p id="desc">Iterated mock: ${prompt}</p>`
+        );
+
+        // Update version logs inside body
+        updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+          /<div id="iter-info"[\s\S]*?>[\s\S]*?<\/div>/g,
+          `<div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Latest Prompt: "${prompt}"</div>`
+        );
+      }
+
+      // Modify CSS if it exists
+      if (updatedFiles["popup.css"] && foundColor) {
+        updatedFiles["popup.css"] = updatedFiles["popup.css"] + `\n/* Added style */\nbutton { background-color: ${foundColor} !important; }`;
+      }
+
+      // Prepend a comment to popup.js to show it was edited
+      if (updatedFiles["popup.js"]) {
+        updatedFiles["popup.js"] = `// Iterated: ${prompt} on ${new Date().toLocaleTimeString()}\n` + updatedFiles["popup.js"];
+      }
+
+      // Increment Manifest Version
+      if (updatedFiles["manifest.json"]) {
+        try {
+          const manifest = JSON.parse(updatedFiles["manifest.json"]);
+          const parts = (manifest.version || "1.0.0").split(".");
+          parts[2] = String(parseInt(parts[2] || 0) + 1);
+          manifest.version = parts.join(".");
+          manifest.description = `Iterated version. Latest: ${prompt}`;
+          updatedFiles["manifest.json"] = JSON.stringify(manifest, null, 2);
+        } catch (e) {
+          console.warn("[mock iteration] manifest.json parsing failed", e.message);
+        }
+      }
+
+      rawText = JSON.stringify(updatedFiles);
+    } else {
+      // 2. Initial Mode in Mock Setup
+      const mockOutput = {
+        "manifest.json": JSON.stringify({
+          manifest_version: 3,
+          name: projectName,
+          version: "1.0.0",
+          description: `Generated from prompt: ${prompt}`,
+          action: { default_popup: "popup.html" },
+          permissions: ["activeTab", "storage"]
+        }, null, 2),
+        "popup.html": `<!DOCTYPE html>
 <html>
 <head>
-  <style>body { width: 250px; font-family: sans-serif; padding: 10px; }</style>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <h3>${projectName}</h3>
-  <p>Mock generated extension</p>
-  <button id="btn">Click me</button>
+  <p id="desc">Mock generated extension</p>
+  <button id="btn" style="background-color: red; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; transition: all 0.2s;">Click me</button>
+  <div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Version 1 (Initial)</div>
   <script src="popup.js"></script>
 </body>
 </html>`,
-      "popup.js": `document.getElementById('btn').addEventListener('click', () => alert('Mock clicked!'));`
-    };
-    rawText = JSON.stringify(mockOutput);
+        "popup.css": `body { width: 250px; font-family: sans-serif; padding: 10px; background-color: #ffffff; color: #333333; }`,
+        "popup.js": `document.getElementById('btn').addEventListener('click', () => alert('Hello from ${projectName}!'));`
+      };
+      rawText = JSON.stringify(mockOutput);
+    }
   } else {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate a Chrome extension for: ${prompt}` },
-      ],
-      max_tokens: 4096,
-      temperature: 0.2,
+    // Gemini generation / iteration
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      systemInstruction: systemPrompt,
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
     });
 
-    rawText = response.choices?.[0]?.message?.content ?? "";
+    let promptContent = "";
+    if (previousFiles) {
+      // Convert map to plain object
+      const filesObj = typeof previousFiles.entries === "function" 
+        ? Object.fromEntries(previousFiles) 
+        : previousFiles;
+
+      promptContent = `We have an existing Chrome extension project named "${projectName}".
+Here are the existing files in the project:
+${JSON.stringify(filesObj, null, 2)}
+
+The user wants to modify this extension with the following instruction:
+"${prompt}"
+
+Please modify, update, add, or delete files as necessary based on the instruction. Output the complete, updated set of files for the extension in the required JSON format. Make sure to keep any files that don't need changes, and edit the others. Return a fully valid JSON containing all the extension files.`;
+    } else {
+      promptContent = `Generate a Chrome extension for: ${prompt}`;
+    }
+
+    const response = await model.generateContent(promptContent);
+    rawText = response.response.text();
   }
+  
   console.log(`[generate] Received ${rawText.length} chars from LLM`);
 
   if (!rawText.trim()) {
@@ -239,4 +328,4 @@ async function zipFolder(sourceDir, outPath) {
   });
 }
 
-export { generateExtensionZip };
+export { generateExtensionZip, zipFolder };

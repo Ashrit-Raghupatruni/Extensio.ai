@@ -1,11 +1,17 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import cors from "cors";
+import connectDB from "./utils/db.js";
+import authRoutes from "./routes/authRoutes.js";
 import extensionRoutes from "./routes/extensionRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
 import { cleanupOldFiles } from "./utils/fileUtils.js";
+
+// Connect to MongoDB
+await connectDB();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,10 +25,15 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // --- Static files ---
-app.use(express.static(path.join(__dirname, "public")));
+const publicPath = fs.existsSync(path.join(__dirname, "public", "index.html"))
+  ? path.join(__dirname, "public")
+  : path.join(__dirname, "..", "frontend");
+
+app.use(express.static(publicPath));
 app.use("/downloads", express.static(path.join(__dirname, "downloads")));
 
 // --- API Routes ---
+app.use("/api/auth", authRoutes);
 app.use("/api/extensions", extensionRoutes);
 app.use("/api/projects", projectRoutes);
 
