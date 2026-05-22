@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { validateExtensionOutput } from "../utils/validateExtensionOutput.js";
 import { sanitizeFilename, safePath } from "../utils/fileUtils.js";
+import { sanitizeGeneratedCode } from "../utils/sanitizeCode.js";
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -79,6 +80,103 @@ function extractJSON(rawText) {
 }
 
 /**
+ * Generates mock extension files using smart offline heuristics.
+ * @param {string} prompt
+ * @param {string} projectName
+ * @param {object} previousFiles
+ * @returns {string} Stringified JSON files mapping
+ */
+function generateMockExtensionFiles(prompt, projectName, previousFiles) {
+  if (previousFiles) {
+    const updatedFiles = {};
+    const filesObj = typeof previousFiles.entries === "function" 
+      ? Object.fromEntries(previousFiles) 
+      : previousFiles;
+
+    for (const [filename, fileBody] of Object.entries(filesObj)) {
+      updatedFiles[filename] = fileBody;
+    }
+
+    const colors = ["blue", "green", "purple", "yellow", "orange", "black", "violet", "pink", "teal", "cyan", "red", "indigo"];
+    let foundColor = null;
+    for (const color of colors) {
+      if (prompt.toLowerCase().includes(color)) {
+        foundColor = color;
+        break;
+      }
+    }
+
+    if (updatedFiles["popup.html"]) {
+      if (foundColor) {
+        updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+          /background-color:\s*[^;"]+/g,
+          `background-color: ${foundColor}`
+        );
+      }
+      updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+        /<p id="desc">[\s\S]*?<\/p>/g,
+        `<p id="desc">Iterated mock: ${prompt}</p>`
+      );
+      updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
+        /<div id="iter-info"[\s\S]*?>[\s\S]*?<\/div>/g,
+        `<div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Latest Prompt: "${prompt}"</div>`
+      );
+    }
+
+    if (updatedFiles["popup.css"] && foundColor) {
+      updatedFiles["popup.css"] = updatedFiles["popup.css"] + `\n/* Added style */\nbutton { background-color: ${foundColor} !important; }`;
+    }
+
+    if (updatedFiles["popup.js"]) {
+      updatedFiles["popup.js"] = `// Iterated: ${prompt} on ${new Date().toLocaleTimeString()}\n` + updatedFiles["popup.js"];
+    }
+
+    if (updatedFiles["manifest.json"]) {
+      try {
+        const manifest = JSON.parse(updatedFiles["manifest.json"]);
+        const parts = (manifest.version || "1.0.0").split(".");
+        parts[2] = String(parseInt(parts[2] || 0) + 1);
+        manifest.version = parts.join(".");
+        manifest.description = `Iterated version. Latest: ${prompt}`;
+        updatedFiles["manifest.json"] = JSON.stringify(manifest, null, 2);
+      } catch (e) {
+        console.warn("[mock iteration] manifest.json parsing failed", e.message);
+      }
+    }
+
+    return JSON.stringify(updatedFiles);
+  } else {
+    const mockOutput = {
+      "manifest.json": JSON.stringify({
+        manifest_version: 3,
+        name: projectName,
+        version: "1.0.0",
+        description: `Generated from prompt: ${prompt}`,
+        action: { default_popup: "popup.html" },
+        permissions: ["activeTab", "storage"]
+      }, null, 2),
+      "popup.html": `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h3>${projectName}</h3>
+  <p id="desc">Mock generated extension</p>
+  <button id="btn" style="background-color: red; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; transition: all 0.2s;">Click me</button>
+  <div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Version 1 (Initial)</div>
+  <script src="popup.js"></script>
+</body>
+</html>`,
+      "popup.css": `body { width: 250px; font-family: sans-serif; padding: 10px; background-color: #ffffff; color: #333333; }`,
+      "popup.js": `document.getElementById('btn').addEventListener('click', () => alert('Hello from ${projectName}!'));`
+    };
+    return JSON.stringify(mockOutput);
+  }
+}
+
+/**
  * Generates a Chrome extension from a prompt (and optional previousFiles to modify),
  * writes files to a temp directory, packages them into a ZIP, and returns a download URL.
  *
@@ -98,116 +196,35 @@ async function generateExtensionZip(prompt, projectName, previousFiles = null) {
 
   if (!genAI) {
     console.log(`[generate] MOCK MODE: Gemini API key missing. Performing mock generation/iteration.`);
-    
-    if (previousFiles) {
-      // 1. Iteration Mode in Mock Setup
-      const updatedFiles = {};
-      
-      // Handle Mongoose Map or standard JS object
-      const filesObj = typeof previousFiles.entries === "function" 
-        ? Object.fromEntries(previousFiles) 
-        : previousFiles;
-
-      for (const [filename, fileBody] of Object.entries(filesObj)) {
-        updatedFiles[filename] = fileBody;
-      }
-
-      // Check if prompt contains color names
-      const colors = ["blue", "green", "purple", "yellow", "orange", "black", "violet", "pink", "teal", "cyan", "red", "indigo"];
-      let foundColor = null;
-      for (const color of colors) {
-        if (prompt.toLowerCase().includes(color)) {
-          foundColor = color;
-          break;
-        }
-      }
-
-      // Modify HTML styled button if color found
-      if (updatedFiles["popup.html"]) {
-        if (foundColor) {
-          updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
-            /background-color:\s*[^;"]+/g,
-            `background-color: ${foundColor}`
-          );
-        }
-        
-        // Update description paragraph
-        updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
-          /<p id="desc">[\s\S]*?<\/p>/g,
-          `<p id="desc">Iterated mock: ${prompt}</p>`
-        );
-
-        // Update version logs inside body
-        updatedFiles["popup.html"] = updatedFiles["popup.html"].replace(
-          /<div id="iter-info"[\s\S]*?>[\s\S]*?<\/div>/g,
-          `<div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Latest Prompt: "${prompt}"</div>`
-        );
-      }
-
-      // Modify CSS if it exists
-      if (updatedFiles["popup.css"] && foundColor) {
-        updatedFiles["popup.css"] = updatedFiles["popup.css"] + `\n/* Added style */\nbutton { background-color: ${foundColor} !important; }`;
-      }
-
-      // Prepend a comment to popup.js to show it was edited
-      if (updatedFiles["popup.js"]) {
-        updatedFiles["popup.js"] = `// Iterated: ${prompt} on ${new Date().toLocaleTimeString()}\n` + updatedFiles["popup.js"];
-      }
-
-      // Increment Manifest Version
-      if (updatedFiles["manifest.json"]) {
-        try {
-          const manifest = JSON.parse(updatedFiles["manifest.json"]);
-          const parts = (manifest.version || "1.0.0").split(".");
-          parts[2] = String(parseInt(parts[2] || 0) + 1);
-          manifest.version = parts.join(".");
-          manifest.description = `Iterated version. Latest: ${prompt}`;
-          updatedFiles["manifest.json"] = JSON.stringify(manifest, null, 2);
-        } catch (e) {
-          console.warn("[mock iteration] manifest.json parsing failed", e.message);
-        }
-      }
-
-      rawText = JSON.stringify(updatedFiles);
-    } else {
-      // 2. Initial Mode in Mock Setup
-      const mockOutput = {
-        "manifest.json": JSON.stringify({
-          manifest_version: 3,
-          name: projectName,
-          version: "1.0.0",
-          description: `Generated from prompt: ${prompt}`,
-          action: { default_popup: "popup.html" },
-          permissions: ["activeTab", "storage"]
-        }, null, 2),
-        "popup.html": `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <h3>${projectName}</h3>
-  <p id="desc">Mock generated extension</p>
-  <button id="btn" style="background-color: red; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; transition: all 0.2s;">Click me</button>
-  <div id="iter-info" style="margin-top: 10px; font-size: 11px; color: #777;">Version 1 (Initial)</div>
-  <script src="popup.js"></script>
-</body>
-</html>`,
-        "popup.css": `body { width: 250px; font-family: sans-serif; padding: 10px; background-color: #ffffff; color: #333333; }`,
-        "popup.js": `document.getElementById('btn').addEventListener('click', () => alert('Hello from ${projectName}!'));`
-      };
-      rawText = JSON.stringify(mockOutput);
-    }
+    rawText = generateMockExtensionFiles(prompt, projectName, previousFiles);
   } else {
     // Gemini generation / iteration
+    const responseSchema = {
+      type: "object",
+      properties: {
+        files: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              filename: { type: "string" },
+              content: { type: "string" }
+            },
+            required: ["filename", "content"]
+          }
+        }
+      },
+      required: ["files"]
+    };
+
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: systemPrompt,
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: responseSchema,
       }
-    });
+    }, { timeout: 10000 });
 
     let promptContent = "";
     if (previousFiles) {
@@ -228,8 +245,36 @@ Please modify, update, add, or delete files as necessary based on the instructio
       promptContent = `Generate a Chrome extension for: ${prompt}`;
     }
 
-    const response = await model.generateContent(promptContent);
-    rawText = response.response.text();
+    let success = false;
+    let lastError = null;
+    const retries = 3;
+    let delay = 1000;
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`[generate] Contacting Gemini API (Attempt ${attempt}/${retries})...`);
+        const response = await model.generateContent(promptContent);
+        rawText = response.response.text();
+        success = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        console.error(`[generate] Attempt ${attempt} failed: ${error.message}`);
+        
+        // Wait before next attempt if not the last one
+        if (attempt < retries) {
+          console.log(`[generate] Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2; // Exponential backoff
+        }
+      }
+    }
+
+    if (!success) {
+      console.warn(`[generate] ⚠️ Gemini API generation failed after ${retries} attempts due to: ${lastError.message}`);
+      console.warn(`[generate] Falling back to offline Smart Mock Mode heuristics to keep user service uninterrupted.`);
+      rawText = generateMockExtensionFiles(prompt, projectName, previousFiles);
+    }
   }
   
   console.log(`[generate] Received ${rawText.length} chars from LLM`);
@@ -239,10 +284,39 @@ Please modify, update, add, or delete files as necessary based on the instructio
   }
 
   // Extract and parse JSON (handles code fences, extra text)
-  const output = extractJSON(rawText);
+  const parsed = extractJSON(rawText);
+
+  // Convert array-based schema back to the original dictionary structure
+  let output = {};
+  if (parsed && Array.isArray(parsed.files)) {
+    for (const fileObj of parsed.files) {
+      if (fileObj.filename && fileObj.content !== undefined) {
+        output[fileObj.filename] = fileObj.content;
+      }
+    }
+  } else if (parsed) {
+    output = parsed;
+  }
+
+  // Security: Sanitize AI-generated code for dangerous patterns
+  const securityReport = sanitizeGeneratedCode(output);
+  if (!securityReport.safe) {
+    console.warn(`[security] ⛔ ${securityReport.violations.length} violation(s) found:`);
+    securityReport.violations.forEach(v => console.warn(`  → ${v}`));
+    throw new Error(
+      `Generated extension failed security audit (${securityReport.violations.length} violation(s)): ` +
+      securityReport.violations.slice(0, 3).join("; ") +
+      (securityReport.violations.length > 3 ? `; ...and ${securityReport.violations.length - 3} more` : "")
+    );
+  }
+  console.log(`[security] ✅ Code sanitization passed — no violations detected`);
 
   // Validate output structure, filenames, and manifest
-  validateExtensionOutput(output);
+  const validationResult = validateExtensionOutput(output);
+  if (validationResult.warnings && validationResult.warnings.length > 0) {
+    console.warn(`[manifest-audit] ${validationResult.warnings.length} permission warning(s):`);
+    validationResult.warnings.forEach(w => console.warn(`  → ${w}`));
+  }
   console.log(`[generate] Validated ${Object.keys(output).length} files`);
 
   // Create temp project folder

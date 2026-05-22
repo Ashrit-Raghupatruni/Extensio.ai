@@ -1,6 +1,6 @@
 # ✦ Extensio.ai — Backend Service & REST API
 
-This directory contains the robust, database-backed Node.js Express server that powers the text-to-extension platform. It orchestrates user sessions, MongoDB schema management, OpenAI generation pipelines, on-the-fly zip compiling, and scheduled resource cleanups.
+This directory contains the robust, database-backed Node.js Express server that powers the text-to-extension platform. It orchestrates user sessions, MongoDB schema management, Gemini API generation pipelines, on-the-fly zip compiling, and scheduled resource cleanups.
 
 ---
 
@@ -50,9 +50,20 @@ This directory contains the robust, database-backed Node.js Express server that 
 2. **Directory Traversal Defense**:
    - Enforces clean input filenames.
    - Prevents path modifications by rejecting double-dots (`..`), slash commands, or unapproved directories in compilation.
-3. **Strict Extention & Content Check**:
+3. **Strict Extension & Content Check**:
    - Limits file outputs to approved extensions: `.html`, `.css`, `.js`, `.json`, `.md`, `.png`, `.jpg`.
    - Automatically validates `manifest.json` structures, enforcing that `manifest_version: 3` is populated.
+4. **Code Sanitization (`utils/sanitizeCode.js`)**:
+   - Scans and sanitizes all generated extension code to block malicious behavior.
+   - Prevents executing code inside `eval()`, `new Function()`, or writing dynamic HTML via `document.write()`.
+   - Blocks crypto miners, external tracking scripts/pixels, code obfuscation structures (such as `String.fromCharCode`), and data exfiltration routes.
+5. **Manifest Permission Auditing (`utils/validateExtensionOutput.js`)**:
+   - Restricts high-risk Chrome API permissions (e.g. `debugger`, `proxy`, `vpnProvider`, `nativeMessaging`).
+   - Warns users if sensitive or overly broad permissions (e.g. `webRequest`, `cookies`, `<all_urls>`, `*://*/*`) are requested.
+   - Performs a static check on Content Security Policy (CSP) headers to block `unsafe-eval` and `unsafe-inline`.
+6. **API Rate Limiting (`utils/rateLimiter.js`)**:
+   - Enforces strict sliding window API rate limits using an lightweight, auto-cleaning memory store.
+   - Restricts operations globally (60 req/min), extension iterations (3 per-user req/min), and authentication routes (5 registration/15min, 10 login/15min).
 
 ---
 
@@ -76,14 +87,14 @@ This directory contains the robust, database-backed Node.js Express server that 
 - `POST /api/extensions/generate`: Accepts user prompts.
   - Body: `{ "projectName": "Name", "prompt": "Prompt text", "projectId": "Optional ID for iterations" }`
   - Injects historical file contexts if iterating on an existing project.
-  - Communicates with OpenAI (or falls back to **Smart Mock Mode** if `OPENAI_API_KEY` is not configured).
+  - Communicates with Gemini API (or falls back to **Smart Mock Mode** if `GEMINI_API_KEY` is not configured).
   - Automatically saves the newly generated version to MongoDB under the user's project record.
 
 ---
 
 ## 🤖 Smart Mock Mode Heuristics (Offline Dev-friendly)
 
-If you are developing locally without an active OpenAI API key, the server falls back to an intelligent mock heuristic model instead of throwing errors:
+If you are developing locally without an active Gemini API key, the server falls back to an intelligent mock heuristic model instead of throwing errors:
 - **Style Overrides**: Detects color strings in prompts (e.g., *blue*, *violet*, *green*) and automatically modifies styling rules in `popup.html`/`popup.css`.
 - **Manifest Increments**: Automatically increments manifest.json `version` integers on iterations.
 - **Code Annotations**: Prepends timeline iteration commentaries inside generated JS scripts.
@@ -108,7 +119,7 @@ To run the backend service outside Docker directly on your host environment:
    ```env
    PORT=4000
    MONGO_URI=mongodb://localhost:27017/extensio
-   OPENAI_API_KEY=your_key_here # Optional
+   GEMINI_API_KEY=your_key_here # Optional
    ```
 3. Install dependencies:
    ```bash

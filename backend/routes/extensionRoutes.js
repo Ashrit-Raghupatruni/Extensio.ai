@@ -5,6 +5,15 @@ import { fileURLToPath } from "url";
 import { generateExtensionZip } from "../services/extensionService.js";
 import { saveProject, getProject } from "../services/projectService.js";
 import { requireAuth } from "../utils/auth.js";
+import { createRateLimiter } from "../utils/rateLimiter.js";
+
+// Strict rate limit for AI generation: 3 requests per minute per user
+const generateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 3,
+  message: "Generation rate limit exceeded. Please wait before generating another extension.",
+  keyGenerator: (req) => req.user?._id?.toString() || req.ip,
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +29,7 @@ router.use(requireAuth);
  * Receives a prompt + projectName, generates/updates a Chrome extension via LLM,
  * packages it into a ZIP, automatically saves it in MongoDB, and returns the project and download URL.
  */
-router.post("/generate", async (req, res) => {
+router.post("/generate", generateLimiter, async (req, res) => {
   try {
     const { prompt, projectName, projectId } = req.body;
 

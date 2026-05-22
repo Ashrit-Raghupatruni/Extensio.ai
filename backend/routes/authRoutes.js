@@ -3,9 +3,23 @@ import crypto from "crypto";
 import User from "../models/User.js";
 import Session from "../models/Session.js";
 import { hashPassword, verifyPassword, requireAuth } from "../utils/auth.js";
+import { createRateLimiter } from "../utils/rateLimiter.js";
 
 const router = express.Router();
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Rate limiters for auth endpoints
+const registerLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: "Too many registration attempts. Please try again later.",
+});
+
+const loginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: "Too many login attempts. Please try again later.",
+});
 
 /**
  * Helper to set standard HttpOnly cookie
@@ -24,7 +38,7 @@ function setSessionCookie(res, token) {
  * POST /api/auth/register
  * Registers a new user and logs them in immediately.
  */
-router.post("/register", async (req, res) => {
+router.post("/register", registerLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -68,7 +82,6 @@ router.post("/register", async (req, res) => {
 
     setSessionCookie(res, sessionToken);
 
-    res.status(21) // Created
     res.status(201).json({
       message: "Registration successful",
       token: sessionToken,
@@ -88,7 +101,7 @@ router.post("/register", async (req, res) => {
  * POST /api/auth/login
  * Authenticates user and sets session cookie.
  */
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
