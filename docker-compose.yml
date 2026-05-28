@@ -8,6 +8,12 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
 
   app:
@@ -18,13 +24,20 @@ services:
     environment:
       - MONGO_URI=mongodb://db:27017/extensio
       - PORT=4000
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./backend/downloads:/usr/src/app/downloads
       - ./backend/tmp:/usr/src/app/tmp
       - ./frontend:/usr/src/frontend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

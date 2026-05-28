@@ -79,11 +79,58 @@ async function runCleanup() {
 
 // Run cleanup on startup and then periodically
 runCleanup();
-setInterval(runCleanup, CLEANUP_INTERVAL_MS);
+const cleanupInterval = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
 // --- Start server ---
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n  ✦ Extensio.ai backend running on http://localhost:${PORT}`);
   console.log(`  ✦ API docs: POST /api/extensions/generate`);
   console.log(`  ✦ Health check: GET /api/health\n`);
+
+  // Boot environment checks
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn("⚠️  [Warning] GEMINI_API_KEY is not defined in the environment variables!");
+    console.warn("⚠️  [Warning] The engine will run using OFFLINE SMART MOCK MODE HEURISTICS.\n");
+  } else {
+    console.log("✅ [Success] GEMINI_API_KEY verified. AI Orchestration Engine is online!\n");
+  }
 });
+
+// --- Graceful Shutdown Handler ---
+import mongoose from "mongoose";
+
+async function gracefulShutdown(signal) {
+  console.log(`\n[server] ${signal} signal received. Starting graceful shutdown sequence...`);
+  
+  // 1. Clear files cleanup intervals
+  clearInterval(cleanupInterval);
+  console.log("[server] Periodic files cleanup interval cleared.");
+
+  // 2. Shut down express HTTP listener
+  server.close(async () => {
+    console.log("[server] Express server closed. No longer accepting new connections.");
+    
+    try {
+      // 3. Cleanly close MongoDB connection pool
+      await mongoose.connection.close();
+      console.log("[server] MongoDB connection terminated cleanly.");
+      
+      console.log("[server] Graceful shutdown completed. Exiting process.");
+      process.exit(0);
+    } catch (err) {
+      console.error("[server] Error closing MongoDB connection:", err);
+      process.exit(1);
+    }
+  });
+
+  // Force shutdown backup timeout (10 seconds)
+  setTimeout(() => {
+    console.error("[server] Forced shutdown initiated due to timeout.");
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+
