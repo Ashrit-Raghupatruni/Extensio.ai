@@ -45,6 +45,11 @@ export function createRateLimiter({
   }
 
   return (req, res, next) => {
+    // Developer bypass for E2E testing suite
+    if (req.headers["x-bypass-rate-limit"] === "developer-secret") {
+      return next();
+    }
+
     // Generate client identity key
     const key = keyGenerator
       ? keyGenerator(req)

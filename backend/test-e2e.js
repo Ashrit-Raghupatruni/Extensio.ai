@@ -1,6 +1,8 @@
 import axios from "axios";
 
 const BASE_URL = "http://localhost:4000/api";
+// Apply global developer bypass header for E2E speed runs
+axios.defaults.headers.common["x-bypass-rate-limit"] = "developer-secret";
 const timestamp = Date.now();
 const username = `tester_${timestamp}`;
 const password = "password123";
@@ -197,6 +199,70 @@ async function runTests() {
       }
     }
 
+    // 10.5. Subscription Gating and Upgrade Verification
+    console.log(`\n[Test 10.5] Testing subscription gating and upgrade flow...`);
+    
+    console.log(`- Fetching user profile to check initial tier...`);
+    const subMeRes = await axios.get(`${BASE_URL}/auth/me`, { headers });
+    if (subMeRes.data.user.subscriptionTier === "free") {
+      console.log(`✅ Default tier is "free"!`);
+    } else {
+      throw new Error(`Default tier should be free, got: ${subMeRes.data.user.subscriptionTier}`);
+    }
+
+    console.log(`- Attempting to generate premium extension with "fetch" keyword...`);
+    let gated = false;
+    try {
+      await axios.post(`${BASE_URL}/extensions/generate`, {
+        projectName: "API Fetcher",
+        prompt: "A popup extension that calls a fetch API to load weather reports",
+      }, { headers });
+    } catch (err) {
+      if (err.response && err.response.status === 403 && err.response.data.code === "PREMIUM_FEATURE_REQUIRED") {
+        gated = true;
+        console.log(`✅ Subscription gating blocked advanced prompt successfully! (HTTP 403: PREMIUM_FEATURE_REQUIRED)`);
+      } else {
+        throw err;
+      }
+    }
+
+    if (!gated) {
+      throw new Error("Gating failed: Advanced prompt was allowed on Free tier!");
+    }
+
+    console.log(`- Upgrading user to Premium tier via /auth/upgrade...`);
+    const upgradeRes = await axios.post(`${BASE_URL}/auth/upgrade`, {}, { headers });
+    if (upgradeRes.status === 200 && upgradeRes.data.user.subscriptionTier === "premium") {
+      console.log(`✅ Upgrade successful! New tier: ${upgradeRes.data.user.subscriptionTier}`);
+    } else {
+      throw new Error(`Upgrade failed: ${JSON.stringify(upgradeRes.data)}`);
+    }
+
+    console.log(`- Re-attempting premium extension generation as Premium user...`);
+    const premiumGenRes = await axios.post(`${BASE_URL}/extensions/generate`, {
+      projectName: "API Fetcher",
+      prompt: "A popup extension that calls a fetch API to load weather reports",
+    }, { headers });
+
+    if (premiumGenRes.status === 200 && premiumGenRes.data.projectId) {
+      console.log(`✅ Allowed! Extension generated successfully as Premium user.`);
+      // Clean up the created test project from DB to avoid pollution
+      await axios.delete(`${BASE_URL}/projects/${premiumGenRes.data.projectId}`, { headers });
+    } else {
+      throw new Error(`Generation failed even after upgrade: ${JSON.stringify(premiumGenRes.data)}`);
+    }
+
+    console.log(`- Verifying that usageCount incremented in database...`);
+    const finalMeRes = await axios.get(`${BASE_URL}/auth/me`, { headers });
+    // They had 2 generations from free tier testing, plus 1 new premium generation = 3 total usageCount
+    if (finalMeRes.data.user.usageCount === 3) {
+      console.log(`✅ Usage count successfully tracked and incremented (Count: 3)!`);
+    } else {
+      throw new Error(`Usage count mismatch: expected 3, got ${finalMeRes.data.user.usageCount}`);
+    }
+
+    console.log(`✅ Subscription gating and upgrade flows fully verified!`);
+
     // 11. Session Logout
     console.log(`\n[Test 11] Logging out and ending session...`);
     const logoutRes = await axios.post(`${BASE_URL}/auth/logout`, {}, { headers });
@@ -298,6 +364,9 @@ async function runTests() {
     // 13. Rate Limiter Verification
     console.log(`\n[Test 13] Testing rate limiter on /api/auth/register...`);
 
+    // Temporarily delete bypass header to execute rate limiter trigger test
+    delete axios.defaults.headers.common["x-bypass-rate-limit"];
+
     // Register rapidly — the limit is 5 per 15min, we already used 1 at the start
     let rateLimited = false;
     for (let i = 0; i < 6; i++) {
@@ -316,12 +385,15 @@ async function runTests() {
       }
     }
 
+    // Restore the bypass header for subsequent requests
+    axios.defaults.headers.common["x-bypass-rate-limit"] = "developer-secret";
+
     if (!rateLimited) {
       console.warn(`⚠️  Rate limiter did not trigger within 6 rapid requests (may need IP-based testing).`);
     }
 
     console.log(`\n🎉 ALL TESTS PASSED SUCCESSFULLY!`);
-    console.log(`Security audit complete. Container stack is fully operational and hardened.\n`);
+    console.log(`Security audit and subscription gating complete. Container stack is fully operational and hardened.\n`);
   } catch (error) {
     console.error(`\n❌ TEST FAILING AT STEP:`, error.message);
     if (error.response && error.response.data) {

@@ -18,6 +18,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    subscriptionTier: {
+      type: String,
+      enum: ["free", "premium"],
+      default: "free",
+    },
+    usageCount: {
+      type: Number,
+      default: 0,
+    },
+    maxFreeGenerations: {
+      type: Number,
+      default: 5,
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },

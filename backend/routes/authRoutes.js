@@ -183,9 +183,42 @@ router.get("/me", requireAuth, async (req, res) => {
     user: {
       id: req.user._id,
       username: req.user.username,
+      subscriptionTier: req.user.subscriptionTier || "free",
+      usageCount: req.user.usageCount || 0,
+      maxFreeGenerations: req.user.maxFreeGenerations || 5,
       createdAt: req.user.createdAt,
     },
   });
+});
+
+/**
+ * POST /api/auth/upgrade
+ * Upgrades the authenticated user to the premium tier.
+ */
+router.post("/upgrade", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    user.subscriptionTier = "premium";
+    await user.save();
+
+    res.json({
+      message: "Congratulations! You have successfully upgraded to Premium Pro!",
+      user: {
+        id: user._id,
+        username: user.username,
+        subscriptionTier: user.subscriptionTier,
+        usageCount: user.usageCount,
+        maxFreeGenerations: user.maxFreeGenerations,
+      }
+    });
+  } catch (error) {
+    console.error("[auth/upgrade] error:", error);
+    res.status(500).json({ error: "Failed to upgrade user." });
+  }
 });
 
 export default router;
