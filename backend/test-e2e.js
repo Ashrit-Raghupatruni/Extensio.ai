@@ -2,7 +2,7 @@ import axios from "axios";
 
 const BASE_URL = "http://localhost:4000/api";
 // Apply global developer bypass header for E2E speed runs
-axios.defaults.headers.common["x-bypass-rate-limit"] = "developer-secret";
+axios.defaults.headers.common["x-bypass-rate-limit"] = process.env.RATE_LIMIT_BYPASS_SECRET || "developer-secret";
 const timestamp = Date.now();
 const username = `tester_${timestamp}`;
 const password = "password123";
@@ -230,13 +230,13 @@ async function runTests() {
       throw new Error("Gating failed: Advanced prompt was allowed on Free tier!");
     }
 
-    console.log(`- Upgrading user to Premium tier via /auth/upgrade...`);
-    const upgradeRes = await axios.post(`${BASE_URL}/auth/upgrade`, {}, { headers });
-    if (upgradeRes.status === 200 && upgradeRes.data.user.subscriptionTier === "premium") {
-      console.log(`✅ Upgrade successful! New tier: ${upgradeRes.data.user.subscriptionTier}`);
-    } else {
-      throw new Error(`Upgrade failed: ${JSON.stringify(upgradeRes.data)}`);
-    }
+    console.log(`- Simulating Stripe upgrade by directly updating user tier in DB...`);
+    // In production, this is done by Stripe webhook. For E2E testing, we simulate it.
+    const User = (await import("./models/User.js")).default;
+    const testUser = await User.findOne({ username });
+    testUser.subscriptionTier = "premium";
+    await testUser.save();
+    console.log(`✅ User tier upgraded to "premium" in database (simulating Stripe webhook).`);
 
     console.log(`- Re-attempting premium extension generation as Premium user...`);
     const premiumGenRes = await axios.post(`${BASE_URL}/extensions/generate`, {

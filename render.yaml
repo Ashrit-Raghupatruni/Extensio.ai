@@ -1,0 +1,38 @@
+databases:
+  - name: extensio-db
+    databaseName: extensio
+    plan: free
+    ipAllowList: []
+
+services:
+  - type: web
+    name: extensio-ai
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: MONGO_URI
+        fromDatabase:
+          name: extensio-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: APP_URL
+        sync: false
+    healthCheckPath: /api/health
+    autoDeploy: true

@@ -1,6 +1,6 @@
 # ✦ Extensio.ai — Backend Service & REST API
 
-This directory contains the robust, database-backed Node.js Express server that powers the text-to-extension platform. It orchestrates user sessions, MongoDB schema management, Gemini API generation pipelines, on-the-fly zip compiling, and scheduled resource cleanups.
+This directory contains the robust, database-backed Node.js Express server that powers the text-to-extension platform. It orchestrates user sessions, MongoDB schema management, Gemini API generation pipelines, Stripe subscription billing, multi-layer security enforcement, on-the-fly zip compiling, and scheduled resource cleanups.
 
 ---
 
@@ -9,7 +9,11 @@ This directory contains the robust, database-backed Node.js Express server that 
 - **Runtime & Web Framework**: Node.js, Express.
 - **Database Persistence**: MongoDB utilizing **Mongoose ODM** for schema definition, verification, and database interactions.
 - **Security & Hashing**: Native Node.js `crypto` with `scrypt` salt-hashing (eliminating heavy native compilations like bcrypt inside Docker).
+- **Security Headers**: `helmet` middleware for CSP, X-Frame-Options, HSTS, X-Content-Type-Options, and more.
+- **CSRF Protection**: Double-submit cookie pattern via `utils/csrfProtection.js` — validates `X-CSRF-Token` headers on all state-changing requests.
+- **CORS**: Restricted to explicitly allowed origins via `ALLOWED_ORIGINS` environment variable.
 - **Session Management**: Session documents persisted in MongoDB with automatic **Time-To-Live (TTL)** index expirations.
+- **Payments**: Stripe Checkout for subscription upgrades, webhook handler for lifecycle events, Customer Portal for management.
 - **ZIP Compression**: On-the-fly zip compilation using the `archiver` streaming compression engine.
 - **Testing**: Complete E2E integration test suite built with `axios`.
 
@@ -21,6 +25,11 @@ This directory contains the robust, database-backed Node.js Express server that 
 - `username`: String (Unique, Indexed, Trimmed, Lowercase).
 - `passwordHash`: String (Secure cryptographic hash).
 - `salt`: String (Cryptographic salt).
+- `subscriptionTier`: String (Enum: `free`, `premium`, `cancelled`. Default: `free`).
+- `usageCount`: Number (Tracks total generations per user).
+- `maxFreeGenerations`: Number (Default: 5).
+- `stripeCustomerId`: String (Stripe customer ID, set on first checkout).
+- `stripeSubscriptionId`: String (Active Stripe subscription ID).
 - `createdAt`: Date.
 
 ### 2. Session (`models/Session.js`)
@@ -38,73 +47,133 @@ This directory contains the robust, database-backed Node.js Express server that 
   - `versionId`: String (UUIDv4).
   - `timestamp`: Date.
   - `prompt`: String.
-  - `files`: `Schema.Types.Mixed` (Native BSON Map of file names like `manifest.json` mapped to their text contents. Storing as Mixed solves dot-in-key casting errors for files with dot extensions in MongoDB).
+  - `files`: `Schema.Types.Mixed` (Native BSON Map of file names like `manifest.json` mapped to their text contents).
 
 ---
 
 ## 🛡️ Security Implementations
 
-1. **Authentication Middleware (`utils/auth.js`)**:
+1. **Helmet.js Security Headers (`server.js`)**:
+   - Content-Security-Policy (CSP) with strict directives.
+   - X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security (HSTS).
+   - Referrer-Policy, Cross-Origin policies.
+
+2. **CORS Restriction (`server.js`)**:
+   - Origins restricted to `ALLOWED_ORIGINS` environment variable.
+   - Rejects requests from unauthorized domains.
+   - Credentials mode enabled for cookie-based auth.
+
+3. **CSRF Protection (`utils/csrfProtection.js`)**:
+   - Double-submit cookie pattern using `extensio_csrf` cookie.
+   - All POST/PUT/PATCH/DELETE requests validated against `X-CSRF-Token` header.
+   - Stripe webhook endpoint exempt (uses Stripe's own signature verification).
+
+4. **Authentication Middleware (`utils/auth.js`)**:
    - Implements `requireAuth` to extract cookie session tokens (or `Authorization: Bearer` headers).
    - Validates active sessions against MongoDB and injects the current user profile.
-2. **Directory Traversal Defense**:
+
+5. **Directory Traversal Defense (`utils/fileUtils.js`)**:
    - Enforces clean input filenames.
-   - Prevents path modifications by rejecting double-dots (`..`), slash commands, or unapproved directories in compilation.
-3. **Strict Extension & Content Check**:
-   - Limits file outputs to approved extensions: `.html`, `.css`, `.js`, `.json`, `.md`, `.png`, `.jpg`.
-   - Automatically validates `manifest.json` structures, enforcing that `manifest_version: 3` is populated.
-4. **Code Sanitization (`utils/sanitizeCode.js`)**:
-   - Scans and sanitizes all generated extension code to block malicious behavior.
-   - Prevents executing code inside `eval()`, `new Function()`, or writing dynamic HTML via `document.write()`.
-   - Blocks crypto miners, external tracking scripts/pixels, code obfuscation structures (such as `String.fromCharCode`), and data exfiltration routes.
-5. **Manifest Permission Auditing (`utils/validateExtensionOutput.js`)**:
-   - Restricts high-risk Chrome API permissions (e.g. `debugger`, `proxy`, `vpnProvider`, `nativeMessaging`).
-   - Warns users if sensitive or overly broad permissions (e.g. `webRequest`, `cookies`, `<all_urls>`, `*://*/*`) are requested.
-   - Performs a static check on Content Security Policy (CSP) headers to block `unsafe-eval` and `unsafe-inline`.
-6. **API Rate Limiting (`utils/rateLimiter.js`)**:
-   - Enforces strict sliding window API rate limits using an lightweight, auto-cleaning memory store.
-   - Restricts operations globally (60 req/min), extension iterations (3 per-user req/min), and authentication routes (5 registration/15min, 10 login/15min).
+   - Prevents path modifications by rejecting double-dots (`..`), slash commands, or unapproved directories.
+
+6. **Code Sanitization (`utils/sanitizeCode.js`)**:
+   - Scans all generated extension code to block malicious behavior.
+   - Prevents `eval()`, `new Function()`, `document.write()`, crypto miners, external trackers, insecure URLs, data exfiltration, and code obfuscation.
+
+7. **Manifest Permission Auditing (`utils/validateExtensionOutput.js`)**:
+   - Blocks high-risk permissions: `debugger`, `proxy`, `vpnProvider`, `nativeMessaging`.
+   - Warns on sensitive permissions: `webRequest`, `cookies`, `history`, `management`, `browsingData`.
+   - CSP audit to block `unsafe-eval` and `unsafe-inline`.
+
+8. **API Rate Limiting (`utils/rateLimiter.js`)**:
+   - Sliding window rate limiter with automatic cleanup.
+   - Developer bypass is **environment-gated** — impossible in production (`NODE_ENV=production`).
+   - Requires `RATE_LIMIT_BYPASS_SECRET` env var to match header (dev/test only).
 
 ---
 
 ## 🔌 API Endpoints
 
 ### Authentication (`/api/auth`)
-- `POST /api/auth/register`: Create a new user account. Returns a session token.
-- `POST /api/auth/login`: Authenticates credentials. Sets a secure HttpOnly cookie and returns a JSON session payload.
-- `POST /api/auth/logout`: Invalidates and permanently deletes the session record from MongoDB.
-- `GET /api/auth/me`: Verifies active session token and returns logged-in user profile.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/register` | Create a new user account. Returns session token. |
+| `POST` | `/api/auth/login` | Authenticates credentials. Sets HttpOnly cookie. |
+| `POST` | `/api/auth/logout` | Invalidates and deletes the session from MongoDB. |
+| `GET` | `/api/auth/me` | Returns the logged-in user profile and subscription status. |
 
 ### Projects & Operations (`/api/projects`)
-- `GET /api/projects`: Lists all extension projects owned by the logged-in user.
-- `GET /api/projects/:id`: Returns a complete project object including all compiled version histories.
-- `PATCH /api/projects/:id/rename`: Renames an active project in the database.
-- `DELETE /api/projects/:id`: Permanently deletes the project and all its nested version archives.
-- `GET /api/projects/:id/versions/:versionId/preview/*`: Wildcard endpoint that retrieves a specific version's static asset (e.g. `popup.html`, `popup.css`, `popup.js`) directly from MongoDB and serves it with correct, strict MIME headers (e.g., `text/html; charset=utf-8`, `text/css; charset=utf-8`, `application/javascript; charset=utf-8`) for execution inside a sandboxed browser workspace.
-- `GET /api/projects/:id/versions/:versionId/download`: Dynamic endpoint that retrieves the exact files associated with `versionId` from MongoDB, zips them on-the-fly, and streams the `.zip` binary directly to the browser.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/projects` | Lists all projects owned by the logged-in user. |
+| `GET` | `/api/projects/:id` | Returns a project with all version histories. |
+| `PATCH` | `/api/projects/:id/rename` | Renames a project. |
+| `DELETE` | `/api/projects/:id` | Permanently deletes a project and all versions. |
+| `GET` | `/api/projects/:id/versions/:vid/preview/*` | Serves a version's static asset with correct MIME headers. |
+| `GET` | `/api/projects/:id/versions/:vid/download` | Zips a version's files on-the-fly and streams the `.zip`. |
 
 ### Generation Pipeline (`/api/extensions`)
-- `POST /api/extensions/generate`: Accepts user prompts.
-  - Body: `{ "projectName": "Name", "prompt": "Prompt text", "projectId": "Optional ID for iterations" }`
-  - Injects historical file contexts if iterating on an existing project.
-  - Communicates with Gemini API (or falls back to **Smart Mock Mode** if `GEMINI_API_KEY` is not configured).
-  - Automatically saves the newly generated version to MongoDB under the user's project record.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/extensions/generate` | Generates or iterates an extension. Body: `{ projectName, prompt, projectId? }` |
+
+### Stripe Billing (`/api/stripe`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/stripe/create-checkout-session` | Creates a Stripe Checkout session for premium upgrade. |
+| `POST` | `/api/stripe/webhook` | Receives Stripe webhook events (subscription lifecycle). |
+| `POST` | `/api/stripe/portal` | Creates a Stripe Customer Portal session for managing subscriptions. |
+
+### System
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Health check endpoint for monitoring and load balancers. |
+
+---
+
+## 💳 Stripe Subscription Integration
+
+The platform uses **Stripe Checkout** for premium subscriptions:
+
+1. **Checkout Flow**: Authenticated user clicks "Upgrade" → backend creates a Stripe Checkout session → user is redirected to Stripe's hosted payment page → on success, webhook updates the user's tier to `premium`.
+2. **Webhook Events Handled**:
+   - `checkout.session.completed` — Upgrades user to premium.
+   - `customer.subscription.deleted` — Reverts user to free tier.
+   - `customer.subscription.updated` — Syncs subscription status changes.
+   - `invoice.payment_failed` — Logs payment failure.
+3. **Customer Portal**: Premium users can manage their subscription (cancel, update payment method) via Stripe's hosted portal.
 
 ---
 
 ## 🤖 Smart Mock Mode Heuristics (Offline Dev-friendly)
 
-If you are developing locally without an active Gemini API key, the server falls back to an intelligent mock heuristic model instead of throwing errors:
-- **Style Overrides**: Detects color strings in prompts (e.g., *blue*, *violet*, *green*) and automatically modifies styling rules in `popup.html`/`popup.css`.
-- **Manifest Increments**: Automatically increments manifest.json `version` integers on iterations.
+If you are developing locally without an active Gemini API key, the server falls back to an intelligent mock heuristic model:
+- **Style Overrides**: Detects color strings in prompts and modifies styling rules.
+- **Manifest Increments**: Automatically increments manifest.json `version` on iterations.
 - **Code Annotations**: Prepends timeline iteration commentaries inside generated JS scripts.
-- This ensures that 100% of the SaaS multiversioning, history timeline switches, ZIP streaming, and database layers can be verified offline for free.
+- This ensures 100% of the SaaS features can be verified offline without an API key.
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GEMINI_API_KEY` | Optional | Google AI Studio API key for Gemini 2.5 Flash. Falls back to mock mode if absent. |
+| `MONGO_URI` | Yes | MongoDB connection string (e.g., `mongodb://localhost:27017/extensio`). |
+| `PORT` | Optional | Server port (default: `4000`). |
+| `NODE_ENV` | Optional | Environment mode: `development`, `test`, or `production`. |
+| `ALLOWED_ORIGINS` | Optional | Comma-separated list of allowed CORS origins (default: `http://localhost:4000,http://localhost:3000`). |
+| `RATE_LIMIT_BYPASS_SECRET` | Optional | Secret for dev/test rate limiter bypass header. Disabled in production. |
+| `STRIPE_SECRET_KEY` | Optional | Stripe API secret key for payment processing. |
+| `STRIPE_PUBLISHABLE_KEY` | Optional | Stripe publishable key (used by frontend). |
+| `STRIPE_WEBHOOK_SECRET` | Optional | Stripe webhook signing secret for signature verification. |
+| `STRIPE_PRICE_ID` | Optional | Stripe Price ID for the premium subscription product. |
+| `APP_URL` | Optional | Public URL of the application (default: `http://localhost:4000`). Used for Stripe redirect URLs. |
 
 ---
 
 ## 🧪 Running & Verifying Natively
-
-To run the backend service outside Docker directly on your host environment:
 
 ### Prerequisites
 - Node.js (v18+)
@@ -119,7 +188,12 @@ To run the backend service outside Docker directly on your host environment:
    ```env
    PORT=4000
    MONGO_URI=mongodb://localhost:27017/extensio
-   GEMINI_API_KEY=your_key_here # Optional
+   GEMINI_API_KEY=your_key_here  # Optional
+   NODE_ENV=development
+   ALLOWED_ORIGINS=http://localhost:4000,http://localhost:3000
+   STRIPE_SECRET_KEY=sk_test_xxx  # Optional
+   STRIPE_WEBHOOK_SECRET=whsec_xxx  # Optional
+   STRIPE_PRICE_ID=price_xxx  # Optional
    ```
 3. Install dependencies:
    ```bash
@@ -130,7 +204,6 @@ To run the backend service outside Docker directly on your host environment:
    npm run dev
    ```
 5. **Run Integration Tests**:
-   - Run the E2E verification test suite natively to verify functionality:
-     ```bash
-     node test-e2e.js
-     ```
+   ```bash
+   RATE_LIMIT_BYPASS_SECRET=developer-secret node test-e2e.js
+   ```

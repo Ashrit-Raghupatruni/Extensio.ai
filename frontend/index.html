@@ -962,6 +962,11 @@
     </div>
     
     <div class="user-menu" id="userMenu" style="display: none;">
+      <span class="username-tag" id="subscriptionBadge" style="display: none; cursor: pointer; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">FREE</span>
+      <button class="btn btn-primary" id="btnUpgrade" style="display: none; padding: 0.4rem 0.9rem; font-size: 0.8rem; font-weight: 600;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        Upgrade
+      </button>
       <div class="username-tag">
         <div class="username-dot"></div>
         <span id="activeUsername">user</span>
@@ -1205,6 +1210,24 @@
   </div>
 
   <script>
+    // --- CSRF Token Helper ---
+    function getCsrfToken() {
+      const match = document.cookie.match(/extensio_csrf=([^;]+)/);
+      return match ? match[1] : '';
+    }
+
+    /** Wrapper for fetch that auto-includes CSRF token on mutating requests */
+    async function apiFetch(url, options = {}) {
+      const method = (options.method || 'GET').toUpperCase();
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        options.headers = {
+          ...options.headers,
+          'X-CSRF-Token': getCsrfToken(),
+        };
+      }
+      return fetch(url, options);
+    }
+
     // --- Global Application State ---
     let currentUser = null;
     let projects = [];
@@ -1340,9 +1363,83 @@
       currentUser = user;
       activeUsername.textContent = user.username;
       userMenu.style.display = 'flex';
+      updateSubscriptionUI(user);
       loadUserProjects();
       showView('viewDashboard');
+      
+      // Check URL params for Stripe redirect feedback
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('upgrade') === 'success') {
+        alert('🎉 Welcome to Premium Pro! Your subscription is now active.');
+        window.history.replaceState({}, '', '/');
+      } else if (urlParams.get('upgrade') === 'cancelled') {
+        window.history.replaceState({}, '', '/');
+      }
     }
+
+    /** Updates the subscription badge and upgrade button based on user tier */
+    function updateSubscriptionUI(user) {
+      const badge = document.getElementById('subscriptionBadge');
+      const upgradeBtn = document.getElementById('btnUpgrade');
+      
+      if (user.subscriptionTier === 'premium') {
+        badge.textContent = '⭐ PRO';
+        badge.style.display = 'flex';
+        badge.style.background = 'rgba(168, 85, 247, 0.15)';
+        badge.style.borderColor = 'rgba(168, 85, 247, 0.3)';
+        badge.style.color = '#c084fc';
+        badge.onclick = handleManageSubscription;
+        badge.title = 'Click to manage subscription';
+        upgradeBtn.style.display = 'none';
+      } else {
+        badge.textContent = 'FREE';
+        badge.style.display = 'flex';
+        badge.style.background = 'rgba(255, 255, 255, 0.05)';
+        badge.style.borderColor = 'var(--border)';
+        badge.style.color = 'var(--text-muted)';
+        badge.onclick = null;
+        badge.title = '';
+        upgradeBtn.style.display = 'inline-flex';
+      }
+    }
+
+    /** Redirects user to Stripe Checkout for premium upgrade */
+    async function handleUpgradeClick() {
+      showLoading('Preparing checkout...');
+      try {
+        const response = await apiFetch('/api/stripe/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to create checkout session.');
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
+      } catch (err) {
+        hideLoading();
+        alert('Upgrade Error: ' + err.message);
+      }
+    }
+
+    /** Opens Stripe Customer Portal for managing subscription */
+    async function handleManageSubscription() {
+      showLoading('Opening subscription portal...');
+      try {
+        const response = await apiFetch('/api/stripe/portal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to open portal.');
+        window.location.href = data.url;
+      } catch (err) {
+        hideLoading();
+        alert('Error: ' + err.message);
+      }
+    }
+
+    // Bind upgrade button
+    document.getElementById('btnUpgrade').addEventListener('click', handleUpgradeClick);
 
     // Toggle Registration Mode
     function handleToggleAuth() {
@@ -1379,7 +1476,7 @@
       showLoading(isRegistering ? 'Registering...' : 'Authenticating...');
 
       try {
-        const response = await fetch(endpoint, {
+        const response = await apiFetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -1405,7 +1502,7 @@
     logoutBtn.addEventListener('click', async () => {
       showLoading('Signing out...');
       try {
-        await fetch('/api/auth/logout', { method: 'POST' });
+        await apiFetch('/api/auth/logout', { method: 'POST' });
         currentUser = null;
         userMenu.style.display = 'none';
         showView('viewAuth');
@@ -1506,7 +1603,7 @@
       showLoading('Generating initial codebase...');
 
       try {
-        const response = await fetch('/api/extensions/generate', {
+        const response = await apiFetch('/api/extensions/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectName, prompt })
@@ -1530,7 +1627,7 @@
       if (confirm(`Are you absolutely sure you want to delete "${name}"?\nThis will permanently delete all ${projects.find(p=>p._id===id)?.versions.length || 1} versions and cannot be undone.`)) {
         showLoading('Deleting project...');
         try {
-          const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+          const response = await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
           if (!response.ok) throw new Error('Delete failed.');
           await loadUserProjects();
         } catch (err) {
@@ -1735,7 +1832,7 @@
       showLoading('Iterating and compiling new codebase...');
 
       try {
-        const response = await fetch('/api/extensions/generate', {
+        const response = await apiFetch('/api/extensions/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1800,7 +1897,7 @@
       showLoading('Renaming project...');
 
       try {
-        const response = await fetch(`/api/projects/${activeProject._id}/rename`, {
+        const response = await apiFetch(`/api/projects/${activeProject._id}/rename`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectName: newName })
@@ -1829,7 +1926,7 @@
       if (confirm(`Are you absolutely sure you want to delete "${activeProject.projectName}"?\nThis will permanently delete all versions and cannot be undone.`)) {
         showLoading('Deleting project...');
         try {
-          const response = await fetch(`/api/projects/${activeProject._id}`, { method: 'DELETE' });
+          const response = await apiFetch(`/api/projects/${activeProject._id}`, { method: 'DELETE' });
           if (!response.ok) throw new Error('Delete failed.');
           
           await loadUserProjects();

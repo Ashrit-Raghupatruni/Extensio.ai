@@ -46,7 +46,9 @@ export function createRateLimiter({
 
   return (req, res, next) => {
     // Developer bypass for E2E testing suite
-    if (req.headers["x-bypass-rate-limit"] === "developer-secret") {
+    if (process.env.NODE_ENV !== "production" &&
+        process.env.RATE_LIMIT_BYPASS_SECRET &&
+        req.headers["x-bypass-rate-limit"] === process.env.RATE_LIMIT_BYPASS_SECRET) {
       return next();
     }
 

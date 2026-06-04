@@ -1,6 +1,6 @@
 # ✦ Extensio.ai — Frontend Single Page Application (SPA)
 
-This directory contains the user-facing client application for **Extensio.ai**—a state-of-the-art SaaS platform for text-to-extension generation, complete with version history exploration, and iterative editing.
+This directory contains the user-facing client application for **Extensio.ai**—a state-of-the-art SaaS platform for text-to-extension generation, complete with version history exploration, iterative editing, subscription management, and CSRF-protected API communication.
 
 ---
 
@@ -20,15 +20,28 @@ The client-side interface has been designed from the ground up as a **premium, g
 
 1. **Self-Contained Auth Module**: Modern registration and login views with client-side field validation and secure cookie/session integration.
 2. **Interactive Project Dashboard**: Grid view of all generated extension projects displaying name, prompt description, generation timestamp, and total version counts.
-3. **Chronological Version History Timeline**: Left-hand navigation panel mapping each code iteration's prompt, timestamp, and version count. Clicking any historical node instantly loads that exact version in the Code Studio.
-4. **Code Studio Workspace**: A side-by-side terminal, file list explorer, and segmented workspace:
+3. **Subscription Badge & Upgrade Flow**:
+   - Displays a `FREE` or `⭐ PRO` badge next to the username in the header.
+   - Free users see an "Upgrade" button that redirects to **Stripe Checkout** for premium subscription.
+   - Premium users can click the `⭐ PRO` badge to open the **Stripe Customer Portal** for managing their subscription.
+   - Handles `?upgrade=success` and `?upgrade=cancelled` URL parameters for post-checkout feedback.
+4. **Chronological Version History Timeline**: Left-hand navigation panel mapping each code iteration's prompt, timestamp, and version count. Clicking any historical node instantly loads that exact version in the Code Studio.
+5. **Code Studio Workspace**: A side-by-side terminal, file list explorer, and segmented workspace:
    - **Segmented Controllers**: High-performance tabs to toggle between **Code View** and **Live Preview** seamlessly.
-   - **Nested File Tree**: Chronologically displays file structures of the selected extension version (`manifest.json`, `popup.html`, etc.). Clicking a file dynamically shifts the workspace tab back to the Code View for optimal workflow.
+   - **Nested File Tree**: Chronologically displays file structures of the selected extension version (`manifest.json`, `popup.html`, etc.).
    - **Monospace Code Editor**: Sleek syntax-mocked read-only view with an instant **Copy to Clipboard** button.
-   - **Live Extension Popover Simulator**: An interactive simulated Chrome popup window frame complete with simulated address bars, extension secure protocol markers, and a manual refresh trigger. Loads a sandboxed `<iframe>` to execute version assets on the fly.
-5. **Modify & Iterate Feedback Loop**: Input panel enabling users to request amendments (e.g., *"Make button light violet instead of red"*) that automatically commits a new version to the database.
-6. **Real-time Live Compilation Terminal**: Embedded developer terminal output showing compilation, security validation, and generation logs in real-time.
-7. **Direct ZIP Streaming**: Download button triggering server-side on-the-fly zip archival of the selected historical codebase.
+   - **Live Extension Popover Simulator**: An interactive simulated Chrome popup window frame complete with simulated address bars, extension secure protocol markers, and a manual refresh trigger.
+6. **Modify & Iterate Feedback Loop**: Input panel enabling users to request amendments (e.g., *"Make button light violet instead of red"*) that automatically commits a new version to the database.
+7. **Real-time Live Compilation Terminal**: Embedded developer terminal output showing compilation, security validation, and generation logs in real-time.
+8. **Direct ZIP Streaming**: Download button triggering server-side on-the-fly zip archival of the selected historical codebase.
+
+---
+
+## 🔐 Security Features
+
+- **CSRF Protection**: All state-changing API calls (POST, PUT, PATCH, DELETE) automatically include an `X-CSRF-Token` header via the `apiFetch()` wrapper function. The token is read from the `extensio_csrf` cookie set by the backend.
+- **XSS Prevention**: All user-generated content (project names, prompts) is escaped using `escapeHTML()` before rendering to prevent stored XSS attacks.
+- **Secure Authentication**: Session cookies are HttpOnly with SameSite protection. Bearer token support for programmatic access.
 
 ---
 

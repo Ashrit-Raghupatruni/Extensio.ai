@@ -4,12 +4,16 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import connectDB from "./utils/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import extensionRoutes from "./routes/extensionRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
+import stripeRoutes from "./routes/stripeRoutes.js";
 import { cleanupOldFiles } from "./utils/fileUtils.js";
 import { createRateLimiter } from "./utils/rateLimiter.js";
+import { generateCsrfToken, validateCsrf } from "./utils/csrfProtection.js";
 
 // Connect to MongoDB
 await connectDB();
@@ -20,10 +24,51 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// --- Middleware ---
-app.use(cors());
+// --- Security Middleware ---
+// Helmet: Sets various HTTP security headers (CSP, X-Frame-Options, HSTS, etc.)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:"],
+      frameSrc: ["'self'"],
+      connectSrc: ["'self'", "https://checkout.stripe.com"],
+    },
+  },
+}));
+
+// CORS: Restrict to allowed origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+  : ["http://localhost:4000", "http://localhost:3000"];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (same-origin, curl, mobile apps)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+}));
+
+app.use(cookieParser());
+
+// --- Stripe Webhook (raw body — MUST come before JSON parser) ---
+app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
+
+// --- Body parsers ---
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// --- CSRF Protection (after cookie-parser, before routes) ---
+app.use("/api", generateCsrfToken);
+app.use("/api", validateCsrf);
 
 // --- Global API Rate Limiting (60 requests/minute per IP) ---
 app.use("/api", createRateLimiter({ windowMs: 60 * 1000, max: 60, message: "Too many requests. Please slow down and try again." }));
@@ -40,6 +85,7 @@ app.use("/downloads", express.static(path.join(__dirname, "downloads")));
 app.use("/api/auth", authRoutes);
 app.use("/api/extensions", extensionRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/stripe", stripeRoutes);
 
 // --- Health check ---
 app.get("/api/health", (req, res) => {

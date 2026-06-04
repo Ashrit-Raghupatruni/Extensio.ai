@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema(
     },
     subscriptionTier: {
       type: String,
-      enum: ["free", "premium"],
+      enum: ["free", "premium", "cancelled"],
       default: "free",
     },
     usageCount: {
@@ -30,6 +30,14 @@ const userSchema = new mongoose.Schema(
     maxFreeGenerations: {
       type: Number,
       default: 5,
+    },
+    stripeCustomerId: {
+      type: String,
+      default: null,
+    },
+    stripeSubscriptionId: {
+      type: String,
+      default: null,
     },
   },
   {
