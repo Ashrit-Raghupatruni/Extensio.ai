@@ -1,4 +1,4 @@
-# ✦ Extensio.ai — Text-to-Extension SaaS Platform
+# ✦ Extensio.ai — Text-to-Extension
 
 **Extensio.ai** is a complete, containerized SaaS-style developer platform that converts natural language text descriptions into production-ready Chrome Extensions (Manifest V3, HTML, CSS, JavaScript). 
 
