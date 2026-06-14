@@ -50,8 +50,16 @@ export function validateCsrf(req, res, next) {
     return next();
   }
 
-  // Skip CSRF validation for the Stripe webhook path (uses its own signature verification)
-  if (req.path === "/api/stripe/webhook") {
+  // Skip CSRF validation for unauthenticated entry points and webhook paths.
+  // Auth routes: new users/visitors don't have a CSRF cookie yet (protected by rate limiting instead).
+  // Stripe webhook: uses its own signature-based verification.
+  const csrfExemptPaths = [
+    "/auth/register",
+    "/auth/login",
+    "/stripe/webhook",
+  ];
+
+  if (csrfExemptPaths.some(exempt => req.path === exempt || req.path.endsWith(exempt))) {
     return next();
   }
 
