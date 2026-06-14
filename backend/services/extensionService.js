@@ -8,6 +8,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { validateExtensionOutput } from "../utils/validateExtensionOutput.js";
 import { sanitizeFilename, safePath } from "../utils/fileUtils.js";
 import { sanitizeGeneratedCode } from "../utils/sanitizeCode.js";
+import { sanitizeUserPrompt } from "../utils/promptGuard.js";
+import { checkCrossFileReferences } from "../utils/crossFileChecker.js";
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
@@ -19,6 +21,10 @@ const TMP_DIR = path.join(__dirname, "..", "tmp");
 await fs.mkdir(DOWNLOADS_DIR, { recursive: true });
 await fs.mkdir(TMP_DIR, { recursive: true });
 
+// ─── Maximum self-correction attempts after validation failures ───────────
+const MAX_SELF_CORRECTION_ATTEMPTS = 2;
+
+// ─── Enhanced Multi-Shot System Prompt ────────────────────────────────────
 const systemPrompt = `You are Extensio.ai, a Chrome Extension code generator. Your job is to generate complete, working Chrome extensions from user prompts.
 
 You must output a JSON object containing a "files" array of objects with "filename" and "content" keys. Do not include markdown code fences or any conversational text.
@@ -33,9 +39,84 @@ RULES:
 7. If the extension needs permissions, declare them properly in manifest.json.
 8. Use service_worker for background scripts (Manifest V3 requirement).
 9. Ensure popup.html references any popup.js and styles.css files you generate.
+10. Every file referenced in manifest.json MUST be included in the output. Do NOT reference files you did not generate.
+11. Every <script src="..."> and <link href="..."> in HTML files MUST point to a file that is included in the output.
+12. Only declare permissions that the code actually uses. Do not over-declare permissions.
 
 ALLOWED FILENAMES:
-manifest.json, popup.html, popup.js, popup.css, content.js, content.css, background.js, options.html, options.js, options.css, styles.css, and any icon files like icons/icon16.png, icons/icon48.png, icons/icon128.png.`;
+manifest.json, popup.html, popup.js, popup.css, content.js, content.css, background.js, options.html, options.js, options.css, styles.css, and any icon files like icons/icon16.png, icons/icon48.png, icons/icon128.png.
+
+EXTENSION ARCHITECTURE GUIDE:
+- Popup-Only extensions: Use manifest.json + popup.html + popup.js + popup.css. Good for simple tools, calculators, quick UIs.
+- Content Script extensions: Use manifest.json + content.js (+ content.css). Good for modifying web pages (DOM manipulation, styling changes, ad blocking). Must include "content_scripts" in manifest with proper "matches".
+- Background Worker extensions: Use manifest.json + background.js (+ popup if needed). Good for event-driven tasks (alarms, notifications, context menus). Use "background.service_worker" in manifest.
+- Hybrid extensions: Combine popup + content + background as needed. Ensure all referenced files exist.
+
+EXAMPLE 1 — Simple Popup Extension (Color Picker):
+{
+  "files": [
+    {
+      "filename": "manifest.json",
+      "content": "{\\"manifest_version\\": 3, \\"name\\": \\"Color Picker\\", \\"version\\": \\"1.0.0\\", \\"description\\": \\"A simple color picker tool\\", \\"action\\": {\\"default_popup\\": \\"popup.html\\"}, \\"permissions\\": [\\"activeTab\\"]}"
+    },
+    {
+      "filename": "popup.html",
+      "content": "<!DOCTYPE html><html><head><meta charset=\\"utf-8\\"><link rel=\\"stylesheet\\" href=\\"popup.css\\"></head><body><h2>Color Picker</h2><input type=\\"color\\" id=\\"picker\\"><p id=\\"hex\\">#000000</p><script src=\\"popup.js\\"></script></body></html>"
+    },
+    {
+      "filename": "popup.js",
+      "content": "document.getElementById('picker').addEventListener('input', e => { document.getElementById('hex').textContent = e.target.value; });"
+    },
+    {
+      "filename": "popup.css",
+      "content": "body { width: 200px; padding: 16px; font-family: 'Segoe UI', sans-serif; } h2 { margin: 0 0 12px; font-size: 16px; } input[type=color] { width: 100%; height: 40px; border: none; cursor: pointer; } #hex { text-align: center; font-family: monospace; font-size: 18px; margin-top: 8px; }"
+    }
+  ]
+}
+
+EXAMPLE 2 — Content Script Extension (Page Word Counter):
+{
+  "files": [
+    {
+      "filename": "manifest.json",
+      "content": "{\\"manifest_version\\": 3, \\"name\\": \\"Word Counter\\", \\"version\\": \\"1.0.0\\", \\"description\\": \\"Counts words on any page\\", \\"action\\": {\\"default_popup\\": \\"popup.html\\"}, \\"permissions\\": [\\"activeTab\\", \\"scripting\\"]}"
+    },
+    {
+      "filename": "popup.html",
+      "content": "<!DOCTYPE html><html><head><meta charset=\\"utf-8\\"><link rel=\\"stylesheet\\" href=\\"popup.css\\"></head><body><h2>Word Counter</h2><button id=\\"count\\">Count Words</button><p id=\\"result\\">Click to count</p><script src=\\"popup.js\\"></script></body></html>"
+    },
+    {
+      "filename": "popup.js",
+      "content": "document.getElementById('count').addEventListener('click', async () => { const [tab] = await chrome.tabs.query({active: true, currentWindow: true}); const results = await chrome.scripting.executeScript({ target: {tabId: tab.id}, func: () => document.body.innerText.split(/\\\\s+/).filter(w => w.length > 0).length }); document.getElementById('result').textContent = results[0].result + ' words'; });"
+    },
+    {
+      "filename": "popup.css",
+      "content": "body { width: 220px; padding: 16px; font-family: 'Segoe UI', sans-serif; } button { width: 100%; padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; } button:hover { background: #45a049; } #result { text-align: center; margin-top: 12px; font-size: 18px; font-weight: bold; }"
+    }
+  ]
+}
+
+EXAMPLE 3 — Background + Storage Extension (Quick Notes):
+{
+  "files": [
+    {
+      "filename": "manifest.json",
+      "content": "{\\"manifest_version\\": 3, \\"name\\": \\"Quick Notes\\", \\"version\\": \\"1.0.0\\", \\"description\\": \\"Save quick notes with persistence\\", \\"action\\": {\\"default_popup\\": \\"popup.html\\"}, \\"permissions\\": [\\"storage\\"]}"
+    },
+    {
+      "filename": "popup.html",
+      "content": "<!DOCTYPE html><html><head><meta charset=\\"utf-8\\"><link rel=\\"stylesheet\\" href=\\"popup.css\\"></head><body><h2>Quick Notes</h2><textarea id=\\"note\\" placeholder=\\"Type a note...\\"></textarea><button id=\\"save\\">Save</button><div id=\\"notes\\"></div><script src=\\"popup.js\\"></script></body></html>"
+    },
+    {
+      "filename": "popup.js",
+      "content": "const noteEl = document.getElementById('note'); const notesEl = document.getElementById('notes'); function render(notes) { notesEl.innerHTML = notes.map((n,i) => '<div class=\\"note-item\\">' + n + '<span onclick=\\"del('+i+')\\">&times;</span></div>').join(''); } chrome.storage.local.get(['notes'], r => render(r.notes || [])); document.getElementById('save').addEventListener('click', () => { const text = noteEl.value.trim(); if (!text) return; chrome.storage.local.get(['notes'], r => { const notes = r.notes || []; notes.unshift(text); chrome.storage.local.set({notes}, () => { noteEl.value = ''; render(notes); }); }); }); window.del = i => { chrome.storage.local.get(['notes'], r => { const notes = r.notes || []; notes.splice(i,1); chrome.storage.local.set({notes}, () => render(notes)); }); };"
+    },
+    {
+      "filename": "popup.css",
+      "content": "body { width: 280px; padding: 16px; font-family: 'Segoe UI', sans-serif; } textarea { width: 100%; height: 60px; border: 1px solid #ddd; border-radius: 6px; padding: 8px; resize: none; box-sizing: border-box; } button { width: 100%; margin-top: 8px; padding: 8px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; } .note-item { display: flex; justify-content: space-between; padding: 6px 8px; margin-top: 6px; background: #f5f5f5; border-radius: 4px; font-size: 13px; } .note-item span { cursor: pointer; color: #e53935; font-weight: bold; }"
+    }
+  ]
+}`;
 
 /**
  * Extracts JSON from LLM response text, handling cases where the model
@@ -177,8 +258,76 @@ function generateMockExtensionFiles(prompt, projectName, previousFiles) {
 }
 
 /**
+ * Converts parsed LLM output (files array) into a flat { filename: content } map.
+ * @param {object} parsed - The parsed JSON from LLM
+ * @returns {object} Flat file map
+ */
+function convertToFileMap(parsed) {
+  let output = {};
+  if (parsed && Array.isArray(parsed.files)) {
+    for (const fileObj of parsed.files) {
+      if (fileObj.filename && fileObj.content !== undefined) {
+        output[fileObj.filename] = fileObj.content;
+      }
+    }
+  } else if (parsed) {
+    output = parsed;
+  }
+  return output;
+}
+
+/**
+ * Runs the full validation pipeline on generated output.
+ * Returns an array of error messages (empty = all passed).
+ *
+ * @param {object} output - The { filename: content } file map
+ * @returns {{ errors: string[], warnings: string[] }}
+ */
+function runValidationPipeline(output) {
+  const errors = [];
+  const warnings = [];
+
+  // 1. Security: Sanitize code for dangerous patterns
+  try {
+    const securityReport = sanitizeGeneratedCode(output);
+    if (!securityReport.safe) {
+      errors.push(...securityReport.violations.map(v => `[Security] ${v}`));
+    }
+  } catch (e) {
+    errors.push(`[Security] ${e.message}`);
+  }
+
+  // 2. Validate manifest structure, permissions, CSP
+  try {
+    const validationResult = validateExtensionOutput(output);
+    if (validationResult.warnings) {
+      warnings.push(...validationResult.warnings);
+    }
+  } catch (e) {
+    errors.push(`[Manifest] ${e.message}`);
+  }
+
+  // 3. Cross-file reference integrity check
+  try {
+    const refErrors = checkCrossFileReferences(output);
+    errors.push(...refErrors.map(e => `[CrossRef] ${e}`));
+  } catch (e) {
+    errors.push(`[CrossRef] ${e.message}`);
+  }
+
+  return { errors, warnings };
+}
+
+/**
  * Generates a Chrome extension from a prompt (and optional previousFiles to modify),
  * writes files to a temp directory, packages them into a ZIP, and returns a download URL.
+ *
+ * Features:
+ * - Prompt injection guard
+ * - Multi-shot system prompt with 3 golden examples
+ * - Low temperature for deterministic code generation
+ * - Self-healing pipeline with validation-aware auto-retry
+ * - Cross-file reference integrity checking
  *
  * @param {string} prompt - User's extension description or iteration prompt
  * @param {string} projectName - Name for the project/extension
@@ -188,6 +337,14 @@ function generateMockExtensionFiles(prompt, projectName, previousFiles) {
 async function generateExtensionZip(prompt, projectName, previousFiles = null) {
   console.log(`[generate] Starting generation/iteration for: "${projectName}"`);
   console.log(`[generate] Prompt: "${prompt.slice(0, 100)}..."`);
+
+  // ─── Upgrade 2: Prompt Injection Guard ──────────────────────────────
+  const { sanitized: safePrompt, warnings: promptWarnings } = sanitizeUserPrompt(prompt);
+  if (promptWarnings.length > 0) {
+    console.warn(`[prompt-guard] ${promptWarnings.length} warning(s):`);
+    promptWarnings.forEach(w => console.warn(`  → ${w}`));
+  }
+
   if (previousFiles) {
     console.log(`[generate] Modification mode activated. Existing file count: ${Object.keys(previousFiles).length || previousFiles.size}`);
   }
@@ -196,9 +353,9 @@ async function generateExtensionZip(prompt, projectName, previousFiles = null) {
 
   if (!genAI) {
     console.log(`[generate] MOCK MODE: Gemini API key missing. Performing mock generation/iteration.`);
-    rawText = generateMockExtensionFiles(prompt, projectName, previousFiles);
+    rawText = generateMockExtensionFiles(safePrompt, projectName, previousFiles);
   } else {
-    // Gemini generation / iteration
+    // ─── Build Gemini model with tuned config ───────────────────────────
     const responseSchema = {
       type: "object",
       properties: {
@@ -217,18 +374,23 @@ async function generateExtensionZip(prompt, projectName, previousFiles = null) {
       required: ["files"]
     };
 
+    // Upgrade 1: Temperature & Token Budget Tuning
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: systemPrompt,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,
+        temperature: 0.15,        // Low temperature = deterministic, reliable code
+        topP: 0.9,                // Nucleus sampling threshold
+        topK: 40,                 // Top-K token selection
+        maxOutputTokens: 32768,   // Sufficient for large multi-file extensions
       }
-    }, { timeout: 10000 });
+    }, { timeout: 60000 });       // 60s timeout (was 10s — too tight for complex extensions)
 
+    // ─── Build the user prompt content ──────────────────────────────────
     let promptContent = "";
     if (previousFiles) {
-      // Convert map to plain object
       const filesObj = typeof previousFiles.entries === "function" 
         ? Object.fromEntries(previousFiles) 
         : previousFiles;
@@ -238,13 +400,14 @@ Here are the existing files in the project:
 ${JSON.stringify(filesObj, null, 2)}
 
 The user wants to modify this extension with the following instruction:
-"${prompt}"
+"${safePrompt}"
 
 Please modify, update, add, or delete files as necessary based on the instruction. Output the complete, updated set of files for the extension in the required JSON format. Make sure to keep any files that don't need changes, and edit the others. Return a fully valid JSON containing all the extension files.`;
     } else {
-      promptContent = `Generate a Chrome extension for: ${prompt}`;
+      promptContent = `Generate a Chrome extension for: ${safePrompt}`;
     }
 
+    // ─── Gemini API call with exponential backoff retry ─────────────────
     let success = false;
     let lastError = null;
     const retries = 3;
@@ -261,11 +424,10 @@ Please modify, update, add, or delete files as necessary based on the instructio
         lastError = error;
         console.error(`[generate] Attempt ${attempt} failed: ${error.message}`);
         
-        // Wait before next attempt if not the last one
         if (attempt < retries) {
           console.log(`[generate] Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2; // Exponential backoff
+          delay *= 2;
         }
       }
     }
@@ -273,7 +435,94 @@ Please modify, update, add, or delete files as necessary based on the instructio
     if (!success) {
       console.warn(`[generate] ⚠️ Gemini API generation failed after ${retries} attempts due to: ${lastError.message}`);
       console.warn(`[generate] Falling back to offline Smart Mock Mode heuristics to keep user service uninterrupted.`);
-      rawText = generateMockExtensionFiles(prompt, projectName, previousFiles);
+      rawText = generateMockExtensionFiles(safePrompt, projectName, previousFiles);
+    }
+
+    // ─── Upgrade 5: Self-Healing Pipeline (Validation-Aware Auto-Retry) ─
+    if (success) {
+      let output = null;
+      let validationErrors = [];
+      let correctionAttempt = 0;
+
+      for (correctionAttempt = 0; correctionAttempt <= MAX_SELF_CORRECTION_ATTEMPTS; correctionAttempt++) {
+        // Parse the raw text
+        if (!rawText.trim()) {
+          validationErrors = ["LLM returned an empty response."];
+          break;
+        }
+
+        try {
+          const parsed = extractJSON(rawText);
+          output = convertToFileMap(parsed);
+        } catch (parseError) {
+          validationErrors = [`[JSON] ${parseError.message}`];
+          
+          if (correctionAttempt < MAX_SELF_CORRECTION_ATTEMPTS) {
+            console.warn(`[self-correct] Attempt ${correctionAttempt + 1}: JSON parse failed, asking LLM to fix...`);
+            try {
+              const fixPrompt = `Your previous output was not valid JSON. Error: ${parseError.message}\n\nPlease regenerate the complete Chrome extension as valid JSON. Original request: ${promptContent}`;
+              const fixResponse = await model.generateContent(fixPrompt);
+              rawText = fixResponse.response.text();
+              continue;
+            } catch {
+              break;
+            }
+          }
+          break;
+        }
+
+        // Run the full validation pipeline
+        const { errors, warnings } = runValidationPipeline(output);
+        
+        if (warnings.length > 0) {
+          console.warn(`[manifest-audit] ${warnings.length} permission warning(s):`);
+          warnings.forEach(w => console.warn(`  → ${w}`));
+        }
+
+        if (errors.length === 0) {
+          // All validations passed!
+          if (correctionAttempt > 0) {
+            console.log(`[self-correct] ✅ Self-correction succeeded on attempt ${correctionAttempt}!`);
+          }
+          console.log(`[security] ✅ Code sanitization passed — no violations detected`);
+          console.log(`[generate] Validated ${Object.keys(output).length} files`);
+          
+          // Write files and create ZIP (reuse output below)
+          rawText = JSON.stringify({ files: Object.entries(output).map(([filename, content]) => ({ filename, content })) });
+          break;
+        }
+
+        validationErrors = errors;
+
+        // If we have correction attempts left, ask the LLM to fix
+        if (correctionAttempt < MAX_SELF_CORRECTION_ATTEMPTS) {
+          console.warn(`[self-correct] Attempt ${correctionAttempt + 1}: ${errors.length} validation error(s) found:`);
+          errors.forEach(e => console.warn(`  → ${e}`));
+
+          const errorList = errors.map((e, i) => `${i + 1}. ${e}`).join("\n");
+          const fixPrompt = `Your previous Chrome extension output had the following validation errors:\n${errorList}\n\nPlease fix ALL of these issues and regenerate the complete extension. Make sure:\n- Every file referenced in manifest.json is included in the output\n- Every <script> and <link> in HTML files points to a generated file\n- No dangerous code patterns (eval, document.write, etc.)\n- manifest.json has manifest_version: 3 with valid name and version\n\nOriginal request: ${promptContent}`;
+          
+          try {
+            console.log(`[self-correct] Asking LLM to fix ${errors.length} error(s)...`);
+            const fixResponse = await model.generateContent(fixPrompt);
+            rawText = fixResponse.response.text();
+          } catch (fixError) {
+            console.error(`[self-correct] Fix attempt failed: ${fixError.message}`);
+            break;
+          }
+        }
+      }
+
+      // If we exhausted all correction attempts and still have errors, throw
+      if (validationErrors.length > 0) {
+        console.error(`[self-correct] ❌ Generation failed after ${correctionAttempt} self-correction attempt(s).`);
+        validationErrors.forEach(e => console.error(`  → ${e}`));
+        throw new Error(
+          `Generated extension failed validation after ${correctionAttempt} self-correction attempt(s) (${validationErrors.length} error(s)): ` +
+          validationErrors.slice(0, 3).join("; ") +
+          (validationErrors.length > 3 ? `; ...and ${validationErrors.length - 3} more` : "")
+        );
+      }
     }
   }
   
@@ -285,39 +534,36 @@ Please modify, update, add, or delete files as necessary based on the instructio
 
   // Extract and parse JSON (handles code fences, extra text)
   const parsed = extractJSON(rawText);
+  const output = convertToFileMap(parsed);
 
-  // Convert array-based schema back to the original dictionary structure
-  let output = {};
-  if (parsed && Array.isArray(parsed.files)) {
-    for (const fileObj of parsed.files) {
-      if (fileObj.filename && fileObj.content !== undefined) {
-        output[fileObj.filename] = fileObj.content;
-      }
+  // For mock mode (no self-healing loop), run validation directly
+  if (!genAI) {
+    const securityReport = sanitizeGeneratedCode(output);
+    if (!securityReport.safe) {
+      console.warn(`[security] ⛔ ${securityReport.violations.length} violation(s) found:`);
+      securityReport.violations.forEach(v => console.warn(`  → ${v}`));
+      throw new Error(
+        `Generated extension failed security audit (${securityReport.violations.length} violation(s)): ` +
+        securityReport.violations.slice(0, 3).join("; ") +
+        (securityReport.violations.length > 3 ? `; ...and ${securityReport.violations.length - 3} more` : "")
+      );
     }
-  } else if (parsed) {
-    output = parsed;
-  }
+    console.log(`[security] ✅ Code sanitization passed — no violations detected`);
 
-  // Security: Sanitize AI-generated code for dangerous patterns
-  const securityReport = sanitizeGeneratedCode(output);
-  if (!securityReport.safe) {
-    console.warn(`[security] ⛔ ${securityReport.violations.length} violation(s) found:`);
-    securityReport.violations.forEach(v => console.warn(`  → ${v}`));
-    throw new Error(
-      `Generated extension failed security audit (${securityReport.violations.length} violation(s)): ` +
-      securityReport.violations.slice(0, 3).join("; ") +
-      (securityReport.violations.length > 3 ? `; ...and ${securityReport.violations.length - 3} more` : "")
-    );
-  }
-  console.log(`[security] ✅ Code sanitization passed — no violations detected`);
+    const validationResult = validateExtensionOutput(output);
+    if (validationResult.warnings && validationResult.warnings.length > 0) {
+      console.warn(`[manifest-audit] ${validationResult.warnings.length} permission warning(s):`);
+      validationResult.warnings.forEach(w => console.warn(`  → ${w}`));
+    }
 
-  // Validate output structure, filenames, and manifest
-  const validationResult = validateExtensionOutput(output);
-  if (validationResult.warnings && validationResult.warnings.length > 0) {
-    console.warn(`[manifest-audit] ${validationResult.warnings.length} permission warning(s):`);
-    validationResult.warnings.forEach(w => console.warn(`  → ${w}`));
+    const refErrors = checkCrossFileReferences(output);
+    if (refErrors.length > 0) {
+      console.warn(`[cross-ref] ${refErrors.length} broken reference(s):`);
+      refErrors.forEach(e => console.warn(`  → ${e}`));
+    }
+
+    console.log(`[generate] Validated ${Object.keys(output).length} files`);
   }
-  console.log(`[generate] Validated ${Object.keys(output).length} files`);
 
   // Create temp project folder
   const projectId = uuidv4();

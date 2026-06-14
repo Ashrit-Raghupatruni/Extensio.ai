@@ -36,18 +36,20 @@ Project 3 - Text-to-Extension Developer Platform/
     │   ├── projectRoutes.js    # Project CRUD, version preview, ZIP download
     │   └── stripeRoutes.js     # Stripe Checkout, webhooks, Customer Portal
     ├── services/            # Gemini generation and file zip processors
-    │   ├── extensionService.js  # AI orchestration, JSON extraction, zipping
+    │   ├── extensionService.js  # AI orchestration, self-healing pipeline, zipping
     │   └── projectService.js    # Project persistence logic
     ├── utils/               # Security, auth, database, and rate limiters
     │   ├── auth.js              # Session-based authentication middleware
+    │   ├── crossFileChecker.js  # Inter-file reference integrity validator
     │   ├── csrfProtection.js    # CSRF token generation & validation
     │   ├── db.js                # MongoDB connection manager
     │   ├── fileUtils.js         # Path traversal protection & file sanitization
+    │   ├── promptGuard.js       # Prompt injection detection & sanitization
     │   ├── rateLimiter.js       # Sliding window rate limiter (env-gated bypass)
     │   ├── sanitizeCode.js      # AI-generated code security scanner
     │   ├── subscription.js      # Free/premium tier gating logic
     │   └── validateExtensionOutput.js  # Manifest V3 & permission auditor
-    ├── test-e2e.js          # Automated End-To-End validation suite (13 tests)
+    ├── test-e2e.js          # Automated End-To-End validation suite (16 tests)
     ├── Dockerfile           # Multi-stage production container build
     ├── .env.example         # Environment variable template
     └── README.md            # API endpoints, schemas, & testing documentation
@@ -68,8 +70,9 @@ Extensio.ai is designed not merely as a simple AI prompt wrapper, but as a compr
 ### The AI Component Layers
 
 #### 1. 🧠 The Brain (Reasoning Layer)
-*   **Engine**: Gemini 2.5 Flash (via Google AI Studio).
-*   **Philosophy**: Generative multi-file workflows (simultaneously compiling `manifest.json`, `popup.html`, `popup.css`, and `popup.js`) demand expansive context windows and fast inference. Gemini 2.5 Flash provides the reasoning capacity to ingest historical codebase states and merge user modification requests seamlessly.
+*   **Engine**: Gemini 2.5 Flash (via Google AI Studio), tuned with `temperature: 0.15`, `topP: 0.9`, `topK: 40`, `maxOutputTokens: 32768`.
+*   **Prompt Engineering**: Multi-shot system prompt with 3 golden few-shot examples (popup-only, content script, background+storage archetypes) and 12 strict generation rules.
+*   **Prompt Injection Guard**: Scans user prompts for 13+ injection patterns (jailbreak, role reassignment, system prompt extraction) and blocks them before they reach the LLM. Flags dangerous intent (data theft, keyloggers, cryptomining) as soft warnings.
 *   **Role**: Analyzes current files, accepts iterative prompt modifiers (e.g., *"Make button light violet"*), performs structural code merging, and yields valid production-ready Chrome Extension scripts.
 
 #### 2. 💾 The Memory (Database Layer)
@@ -77,10 +80,11 @@ Extensio.ai is designed not merely as a simple AI prompt wrapper, but as a compr
 *   **Philosophy**: Running in stateless containerized environments (Docker) means we avoid writing active project codebases directly to local disk mounts. Instead, all projects, prompts, chronological history timestamps, and BSON-mapped multi-file version nodes are stored directly inside MongoDB.
 *   **Role**: Keeping session authentication data and hierarchical extension versions in a single MongoDB repository enables instant context recovery and real-time version rollback switches.
 
-#### 3. ⚙️ The Orchestrator (Backend Reasoning Hub)
-*   **Engine**: Custom Multi-File Iteration Controllers.
-*   **Philosophy**: Governs the orchestration loop and guarantees safety bounds across generations.
-*   **Role**: Manages the iterative compilation flow and enforces strict directory traversal protections, validates `manifest_version: 3` compliance, runs **multi-layer security scans**, and executes **Smart Mock Heuristics** for offline development.
+#### 3. ⚙️ The Orchestrator (Self-Healing Pipeline)
+*   **Engine**: Custom Multi-File Iteration Controllers with Validation-Aware Auto-Retry.
+*   **Philosophy**: Governs the orchestration loop, guarantees safety bounds across generations, and **automatically self-corrects** when the LLM produces invalid output.
+*   **Pipeline Flow**: `Generate → Parse JSON → Security Scan → Manifest Validation → Cross-File Reference Check → [Errors?] → Re-prompt LLM with specific errors → Validate again → [Max 2 self-corrections] → Return`
+*   **Cross-File Integrity**: Validates that all manifest.json references (`default_popup`, `service_worker`, `content_scripts`), HTML `<script src>` and `<link href>` tags point to files that actually exist in the generated output.
 
 #### 4. 📺 The Interface (Interaction & Preview Simulation)
 *   **Engine**: Vanilla CSS Glassmorphism / Client-Side Event Hooks.
@@ -175,13 +179,27 @@ Lightweight, in-memory sliding window rate limiter with automatic cleanup:
 Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers.  
 **Note**: Developer bypass is environment-gated — disabled in production (`NODE_ENV=production`).
 
+### Prompt Injection Guard (`utils/promptGuard.js`)
+Scans user prompts before they reach the LLM:
+
+- **Hard blocks (13 patterns)**: "Ignore previous instructions", jailbreak, DAN mode, role reassignment, filter bypass, system prompt extraction
+- **Soft warnings (6 patterns)**: Data theft intent, keyloggers, cryptomining, phishing, ransomware, exfiltration
+- **Length limit**: 5000 characters max
+
+### Cross-File Reference Integrity (`utils/crossFileChecker.js`)
+Validates all inter-file references in generated extensions:
+
+- **Manifest references**: `action.default_popup`, `background.service_worker`, `content_scripts[].js/css`, `options_page`, `web_accessible_resources`
+- **HTML references**: `<script src="...">` and `<link href="...css">`
+- Detects broken references (files referenced but not generated) — fed into the self-healing pipeline for auto-correction
+
 ---
 
 ## 🛠️ Verification: E2E Integration Test Suite
 
-We've written an automated integration test suite (`backend/test-e2e.js`) that exercises the complete system flow including security audits.
+We've written an automated integration test suite (`backend/test-e2e.js`) that exercises the complete system flow including security audits and AI pipeline validation.
 
-All 14 integration steps pass successfully:
+All 16 integration steps pass successfully:
 ```
 🚀 STARTING END-TO-END VERIFICATION TESTS...
 
@@ -200,6 +218,8 @@ All 14 integration steps pass successfully:
 [Test 11] Session logout... ✅ Logged out!
 [Test 12] Security sanitization audit... ✅ eval() BLOCKED, crypto miners BLOCKED, clean code PASSED
 [Test 13] Rate limiter verification... ✅ HTTP 429 triggered
+[Test 14] Prompt injection guard... ✅ Injection blocked, length limit enforced, clean prompt passed
+[Test 15] Cross-file reference checker... ✅ Valid refs pass, broken refs caught
 
 🎉 ALL TESTS PASSED SUCCESSFULLY!
 ```

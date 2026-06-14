@@ -8,6 +8,7 @@ This directory contains the robust, database-backed Node.js Express server that 
 
 - **Runtime & Web Framework**: Node.js, Express.
 - **Database Persistence**: MongoDB utilizing **Mongoose ODM** for schema definition, verification, and database interactions.
+- **AI Generation Engine**: Gemini 2.5 Flash with tuned temperature (0.15), multi-shot prompt engineering, self-healing validation pipeline, prompt injection guard, and cross-file reference integrity checking.
 - **Security & Hashing**: Native Node.js `crypto` with `scrypt` salt-hashing (eliminating heavy native compilations like bcrypt inside Docker).
 - **Security Headers**: `helmet` middleware for CSP, X-Frame-Options, HSTS, X-Content-Type-Options, and more.
 - **CSRF Protection**: Double-submit cookie pattern via `utils/csrfProtection.js` — validates `X-CSRF-Token` headers on all state-changing requests.
@@ -15,7 +16,7 @@ This directory contains the robust, database-backed Node.js Express server that 
 - **Session Management**: Session documents persisted in MongoDB with automatic **Time-To-Live (TTL)** index expirations.
 - **Payments**: Stripe Checkout for subscription upgrades, webhook handler for lifecycle events, Customer Portal for management.
 - **ZIP Compression**: On-the-fly zip compilation using the `archiver` streaming compression engine.
-- **Testing**: Complete E2E integration test suite built with `axios`.
+- **Testing**: Complete E2E integration test suite built with `axios` (16 tests).
 
 ---
 
@@ -90,7 +91,48 @@ This directory contains the robust, database-backed Node.js Express server that 
    - Developer bypass is **environment-gated** — impossible in production (`NODE_ENV=production`).
    - Requires `RATE_LIMIT_BYPASS_SECRET` env var to match header (dev/test only).
 
+9. **Prompt Injection Guard (`utils/promptGuard.js`)**:
+   - Detects 13+ injection patterns (role reassignment, jailbreak, system prompt extraction, filter bypass).
+   - Enforces 5000-character prompt length limit.
+   - Flags dangerous intent (data theft, keyloggers, cryptomining, phishing) as soft warnings.
+
+10. **Cross-File Reference Integrity (`utils/crossFileChecker.js`)**:
+    - Validates manifest.json references (`default_popup`, `service_worker`, `content_scripts`, etc.).
+    - Validates HTML `<script src="">` and `<link href="">` references.
+    - Detects broken references (files referenced but not generated).
+
 ---
+
+## 🧠 AI Generation Pipeline
+
+The code generation engine uses a **self-healing validation pipeline** with tuned LLM parameters:
+
+### Generation Config
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `temperature` | 0.15 | Low randomness for deterministic, reliable code |
+| `topP` | 0.9 | Nucleus sampling threshold |
+| `topK` | 40 | Top-K token selection |
+| `maxOutputTokens` | 32,768 | Sufficient for large multi-file extensions |
+| `timeout` | 60s | Generous timeout for complex generations |
+
+### Multi-Shot System Prompt
+The system prompt includes 3 golden few-shot examples covering:
+1. **Popup-Only** — Simple extension (Color Picker)
+2. **Content Script** — DOM-manipulating extension (Word Counter)
+3. **Background + Storage** — Persistent data extension (Quick Notes)
+
+### Self-Healing Validation Pipeline
+```
+User Prompt → Injection Guard → LLM Generate → Parse JSON
+    → Security Scan → Manifest Validation → Cross-File Check
+    → [Errors?] → Re-prompt LLM with errors → Validate again
+    → [Still errors?] → Re-prompt (max 2 attempts) → Validate
+    → [All passed] → Write files → ZIP → Return
+```
+
+- Up to **2 self-correction attempts** where the LLM receives its own validation errors and fixes them.
+- Falls back to **Smart Mock Mode** if the Gemini API is unavailable.
 
 ## 🔌 API Endpoints
 
