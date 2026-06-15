@@ -1,6 +1,4 @@
 import axios from "axios";
-import connectDB from "./utils/db.js";
-import mongoose from "mongoose";
 import "dotenv/config";
 
 const BASE_URL = "http://localhost:4000/api";
@@ -13,8 +11,6 @@ const password = "password123";
 async function runTests() {
   console.log(`\n🚀 STARTING END-TO-END VERIFICATION TESTS...`);
   console.log(`Using Base URL: ${BASE_URL}\n`);
-
-  await connectDB();
 
   let token = "";
   let headers = {};
@@ -235,13 +231,17 @@ async function runTests() {
       throw new Error("Gating failed: Advanced prompt was allowed on Free tier!");
     }
 
-    console.log(`- Simulating Stripe upgrade by directly updating user tier in DB...`);
-    // In production, this is done by Stripe webhook. For E2E testing, we simulate it.
-    const User = (await import("./models/User.js")).default;
-    const testUser = await User.findOne({ username });
-    testUser.subscriptionTier = "premium";
-    await testUser.save();
-    console.log(`✅ User tier upgraded to "premium" in database (simulating Stripe webhook).`);
+    console.log(`- Simulating Stripe upgrade by sending POST request to test-upgrade endpoint...`);
+    const upgradeRes = await axios.post(`${BASE_URL}/auth/test-upgrade`, {
+      username: username,
+      subscriptionTier: "premium"
+    }, { headers });
+    
+    if (upgradeRes.status === 200 && upgradeRes.data.user.subscriptionTier === "premium") {
+      console.log(`✅ User tier upgraded to "premium" via HTTP API test-upgrade endpoint successfully.`);
+    } else {
+      throw new Error(`Failed to upgrade user subscription tier via API: ${JSON.stringify(upgradeRes.data)}`);
+    }
 
     console.log(`- Re-attempting premium extension generation as Premium user...`);
     const premiumGenRes = await axios.post(`${BASE_URL}/extensions/generate`, {
@@ -491,37 +491,37 @@ async function runTests() {
 
     // 16. Stripe Webhook Idempotency & Deduplication
     console.log(`\n[Test 16] Testing Stripe webhook event idempotency & deduplication...`);
-    const StripeEvent = (await import("./models/StripeEvent.js")).default;
-    
-    // Clean any prior test events
-    await StripeEvent.deleteMany({ eventId: { $in: ["evt_test_dup_1", "evt_test_dup_2"] } });
-
-    // Test unique index and record creation
-    const event1 = await StripeEvent.create({ eventId: "evt_test_dup_1" });
-    if (event1 && event1.eventId === "evt_test_dup_1") {
-      console.log(`✅ Webhook event record created successfully.`);
-    } else {
-      throw new Error(`Failed to create StripeEvent record.`);
-    }
-
-    // Attempting to create duplicate should throw a MongoServerError / duplicate key error
-    try {
-      await StripeEvent.create({ eventId: "evt_test_dup_1" });
-      throw new Error("Duplicate event ID allowed! Deduplication failed.");
-    } catch (err) {
-      if (err.code === 11000 || err.message.includes("E11000") || err.message.includes("duplicate")) {
-        console.log(`✅ Webhook duplicate event blocked successfully by unique index database constraints (code 11000).`);
-      } else {
-        throw err;
+    const mockEvent = {
+      id: "evt_test_dup_" + Date.now(),
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_mock_1",
+          customer: "cus_test_mock_1",
+          subscription: "sub_test_mock_1"
+        }
       }
+    };
+
+    console.log(`- Sending Stripe webhook event (first time)...`);
+    const webhookRes1 = await axios.post(`${BASE_URL}/stripe/webhook`, mockEvent, { headers });
+    
+    if (webhookRes1.status === 200 && webhookRes1.data.received === true && !webhookRes1.data.duplicate) {
+      console.log(`✅ First webhook call processed successfully.`);
+    } else {
+      throw new Error(`First webhook call failed: ${JSON.stringify(webhookRes1.data)}`);
     }
 
-    // Clean up test events
-    await StripeEvent.deleteMany({ eventId: { $in: ["evt_test_dup_1", "evt_test_dup_2"] } });
-    console.log(`✅ Stripe webhook deduplication validation fully verified!`);
+    console.log(`- Sending duplicate Stripe webhook event (second time)...`);
+    const webhookRes2 = await axios.post(`${BASE_URL}/stripe/webhook`, mockEvent, { headers });
+    
+    if (webhookRes2.status === 200 && webhookRes2.data.received === true && webhookRes2.data.duplicate === true) {
+      console.log(`✅ Second webhook call recognized duplicate event and skipped processing successfully!`);
+    } else {
+      throw new Error(`Idempotency check failed: duplicate event was not correctly blocked: ${JSON.stringify(webhookRes2.data)}`);
+    }
 
-    await mongoose.connection.close();
-    console.log(`[db] Mongoose connection closed.`);
+    console.log(`✅ Stripe webhook deduplication validation fully verified!`);
 
     console.log(`\n🎉 ALL TESTS PASSED SUCCESSFULLY!`);
     console.log(`Security audit, AI upgrades, subscription gating, and Stripe webhook idempotency complete. Container stack is fully operational and hardened.\n`);
@@ -530,10 +530,6 @@ async function runTests() {
     if (error.response && error.response.data) {
       console.error(`Response details:`, JSON.stringify(error.response.data, null, 2));
     }
-    try {
-      await mongoose.connection.close();
-      console.log(`[db] Mongoose connection closed on failure.`);
-    } catch (dbCloseErr) {}
     process.exit(1);
   }
 }

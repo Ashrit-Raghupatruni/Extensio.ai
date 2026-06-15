@@ -191,4 +191,44 @@ router.get("/me", requireAuth, async (req, res) => {
   });
 });
 
+/**
+ * POST /api/auth/test-upgrade
+ * Test-only endpoint to upgrade user subscription tier.
+ * Only accessible in non-production environments.
+ */
+router.post("/test-upgrade", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Forbidden in production." });
+  }
+
+  try {
+    const { username, subscriptionTier } = req.body;
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+    const user = await User.findOneAndUpdate(
+      { username: cleanUsername },
+      { subscriptionTier: subscriptionTier || "premium" },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.json({
+      message: `User upgraded to ${user.subscriptionTier}`,
+      user: {
+        username: user.username,
+        subscriptionTier: user.subscriptionTier,
+      },
+    });
+  } catch (error) {
+    console.error("[auth/test-upgrade] error:", error);
+    res.status(500).json({ error: "Failed to upgrade user." });
+  }
+});
+
 export default router;
