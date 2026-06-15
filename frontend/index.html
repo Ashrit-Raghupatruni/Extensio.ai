@@ -781,7 +781,32 @@
     .log-row.info { color: #60a5fa; }
     .log-row.success { color: #34d399; }
     .log-row.error { color: #f87171; }
+    .log-row.warning { color: #fbbf24; }
     .log-row.timestamp { color: #475569; margin-right: 0.5rem; }
+
+    /* Diff Highlighting */
+    .diff-line {
+      display: block;
+      width: 100%;
+      padding: 0 0.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+    }
+    .diff-line.added {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border-left: 3px solid var(--success);
+    }
+    .diff-line.removed {
+      background-color: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      border-left: 3px solid var(--error);
+      text-decoration: line-through;
+    }
+    .diff-line.context {
+      opacity: 0.8;
+      color: #94a3b8;
+    }
 
     /* Loading Spinner Overlay */
     .loading-overlay {
@@ -1085,6 +1110,10 @@
                   <button class="tab-btn" id="tabLivePreview">Live Preview</button>
                 </div>
                 <span class="code-filename" id="viewerFilename">no_file_selected</span>
+                <button class="btn" id="btnShowDiff" style="padding: 0.3rem 0.7rem; font-size: 0.8rem; display: none; margin-right: 0.50rem;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"></path></svg>
+                  <span id="diffBtnText">Show Diff</span>
+                </button>
                 <button class="btn" id="btnCopyCode" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                   <span id="copyBtnText">Copy</span>
@@ -1113,7 +1142,7 @@
                     </button>
                   </div>
                   <div class="chrome-iframe-wrapper">
-                    <iframe class="chrome-mock-iframe" id="previewIframe" sandbox="allow-scripts allow-popups allow-forms allow-same-origin"></iframe>
+                    <iframe class="chrome-mock-iframe" id="previewIframe" sandbox="allow-scripts allow-popups allow-forms"></iframe>
                   </div>
                 </div>
                 <div class="preview-fallback-msg" id="previewFallbackMsg" style="display: none;">
@@ -1234,6 +1263,7 @@
     let activeProject = null;
     let activeVersion = null;
     let activeFile = null;
+    let showDiffMode = false;
     
     let isRegistering = false; // Toggle login / register state
 
@@ -1269,6 +1299,8 @@
     const viewerContent = document.getElementById('viewerContent');
     const btnCopyCode = document.getElementById('btnCopyCode');
     const copyBtnText = document.getElementById('copyBtnText');
+    const btnShowDiff = document.getElementById('btnShowDiff');
+    const diffBtnText = document.getElementById('diffBtnText');
     const iterationPrompt = document.getElementById('iterationPrompt');
     const btnIterate = document.getElementById('btnIterate');
     const btnDownloadZip = document.getElementById('btnDownloadZip');
@@ -1767,7 +1799,27 @@
         ? activeVersion.files.get(filename)
         : activeVersion.files[filename];
 
-      viewerContent.textContent = codeText || '';
+      // Check if we can show the diff button
+      const currentVersionIndex = activeProject.versions.findIndex(v => v.versionId === activeVersion.versionId);
+      if (currentVersionIndex > 0) {
+        btnShowDiff.style.display = 'inline-flex';
+      } else {
+        btnShowDiff.style.display = 'none';
+        showDiffMode = false;
+        diffBtnText.textContent = 'Show Diff';
+      }
+
+      if (showDiffMode && currentVersionIndex > 0) {
+        const prevVersion = activeProject.versions[currentVersionIndex - 1];
+        const prevCodeText = prevVersion.files instanceof Map
+          ? prevVersion.files.get(filename)
+          : prevVersion.files[filename];
+        
+        const diffs = computeDiff(prevCodeText || '', codeText || '');
+        renderDiffOutput(diffs);
+      } else {
+        viewerContent.textContent = codeText || '';
+      }
       
       // Auto-activate code view tab when selecting a file
       activateCodeViewTab();
@@ -1783,6 +1835,7 @@
         </div>
       `;
       btnCopyCode.style.display = 'none';
+      btnShowDiff.style.display = 'none';
     }
 
     // Copy Code to Clipboard
@@ -1967,6 +2020,12 @@
       viewerContent.style.display = 'block';
       viewerFilename.style.display = 'inline';
       btnCopyCode.style.display = activeFile ? 'inline-flex' : 'none';
+      
+      const currentVersionIndex = activeProject && activeVersion 
+        ? activeProject.versions.findIndex(v => v.versionId === activeVersion.versionId)
+        : -1;
+      btnShowDiff.style.display = (activeFile && currentVersionIndex > 0) ? 'inline-flex' : 'none';
+
       previewContainer.style.display = 'none';
     }
 
@@ -1976,6 +2035,7 @@
       viewerContent.style.display = 'none';
       viewerFilename.style.display = 'none';
       btnCopyCode.style.display = 'none';
+      btnShowDiff.style.display = 'none';
       previewContainer.style.display = 'flex';
       updateLivePreview();
     }
@@ -2020,7 +2080,85 @@
       }
     });
 
+    // Listen for Console logs and Runtime errors from the sandboxed iframe preview
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'CONSOLE_LOG') {
+        const level = event.data.level; // 'log', 'warn', 'error'
+        const msg = `[Iframe] ${event.data.message}`;
+        addTerminalLog(msg, level === 'log' ? 'info' : (level === 'warn' ? 'warning' : 'error'));
+      }
+    });
+
+    btnShowDiff.addEventListener('click', () => {
+      showDiffMode = !showDiffMode;
+      diffBtnText.textContent = showDiffMode ? 'Hide Diff' : 'Show Diff';
+      if (activeFile) {
+        selectFile(activeFile);
+      }
+    });
+
     // --- HTML/JS Utilities ---
+    function computeDiff(prev, curr) {
+      const prevLines = prev ? prev.split('\n') : [];
+      const currLines = curr ? curr.split('\n') : [];
+      const diff = [];
+      let i = 0, j = 0;
+      
+      while (i < prevLines.length || j < currLines.length) {
+        if (i < prevLines.length && j < currLines.length && prevLines[i] === currLines[j]) {
+          diff.push({ type: 'context', text: currLines[j] });
+          i++;
+          j++;
+        } else {
+          let found = false;
+          for (let k = 1; k <= 5; k++) {
+            if (j + k < currLines.length && prevLines[i] === currLines[j + k]) {
+              for (let m = 0; m < k; m++) {
+                diff.push({ type: 'added', text: currLines[j + m] });
+              }
+              j += k;
+              found = true;
+              break;
+            }
+            if (i + k < prevLines.length && prevLines[i + k] === currLines[j]) {
+              for (let m = 0; m < k; m++) {
+                diff.push({ type: 'removed', text: prevLines[i + m] });
+              }
+              i += k;
+              found = true;
+              break;
+            }
+          }
+          
+          if (!found) {
+            if (i < prevLines.length && j < currLines.length) {
+              diff.push({ type: 'removed', text: prevLines[i] });
+              diff.push({ type: 'added', text: currLines[j] });
+              i++;
+              j++;
+            } else if (i < prevLines.length) {
+              diff.push({ type: 'removed', text: prevLines[i] });
+              i++;
+            } else if (j < currLines.length) {
+              diff.push({ type: 'added', text: currLines[j] });
+              j++;
+            }
+          }
+        }
+      }
+      return diff;
+    }
+
+    function renderDiffOutput(diffs) {
+      viewerContent.innerHTML = '';
+      diffs.forEach(part => {
+        const lineSpan = document.createElement('span');
+        lineSpan.className = `diff-line ${part.type}`;
+        const prefix = part.type === 'added' ? '+ ' : (part.type === 'removed' ? '- ' : '  ');
+        lineSpan.textContent = prefix + part.text;
+        viewerContent.appendChild(lineSpan);
+      });
+    }
     function escapeHTML(str) {
       if (!str) return '';
       return str.replace(/[&<>'"]/g, 

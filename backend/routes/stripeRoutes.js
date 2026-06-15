@@ -2,6 +2,7 @@ import express from "express";
 import Stripe from "stripe";
 import User from "../models/User.js";
 import { requireAuth } from "../utils/auth.js";
+import StripeEvent from "../models/StripeEvent.js";
 
 const router = express.Router();
 
@@ -78,6 +79,18 @@ router.post("/webhook", async (req, res) => {
   } catch (err) {
     console.error("[stripe/webhook] Signature verification failed:", err.message);
     return res.status(400).json({ error: `Webhook signature verification failed.` });
+  }
+
+  const eventId = event.id;
+  try {
+    const existingEvent = await StripeEvent.findOne({ eventId });
+    if (existingEvent) {
+      console.log(`[stripe/webhook] Event ${eventId} was already processed. Skipping.`);
+      return res.json({ received: true, duplicate: true });
+    }
+    await StripeEvent.create({ eventId });
+  } catch (dbErr) {
+    console.error("[stripe/webhook] Idempotency DB check/write failed:", dbErr.message);
   }
 
   console.log(`[stripe/webhook] Received event: ${event.type}`);

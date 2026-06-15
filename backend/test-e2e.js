@@ -1,4 +1,7 @@
 import axios from "axios";
+import connectDB from "./utils/db.js";
+import mongoose from "mongoose";
+import "dotenv/config";
 
 const BASE_URL = "http://localhost:4000/api";
 // Apply global developer bypass header for E2E speed runs
@@ -10,6 +13,8 @@ const password = "password123";
 async function runTests() {
   console.log(`\n🚀 STARTING END-TO-END VERIFICATION TESTS...`);
   console.log(`Using Base URL: ${BASE_URL}\n`);
+
+  await connectDB();
 
   let token = "";
   let headers = {};
@@ -484,13 +489,51 @@ async function runTests() {
 
     console.log(`✅ Cross-file reference checker fully verified!`);
 
+    // 16. Stripe Webhook Idempotency & Deduplication
+    console.log(`\n[Test 16] Testing Stripe webhook event idempotency & deduplication...`);
+    const StripeEvent = (await import("./models/StripeEvent.js")).default;
+    
+    // Clean any prior test events
+    await StripeEvent.deleteMany({ eventId: { $in: ["evt_test_dup_1", "evt_test_dup_2"] } });
+
+    // Test unique index and record creation
+    const event1 = await StripeEvent.create({ eventId: "evt_test_dup_1" });
+    if (event1 && event1.eventId === "evt_test_dup_1") {
+      console.log(`✅ Webhook event record created successfully.`);
+    } else {
+      throw new Error(`Failed to create StripeEvent record.`);
+    }
+
+    // Attempting to create duplicate should throw a MongoServerError / duplicate key error
+    try {
+      await StripeEvent.create({ eventId: "evt_test_dup_1" });
+      throw new Error("Duplicate event ID allowed! Deduplication failed.");
+    } catch (err) {
+      if (err.code === 11000 || err.message.includes("E11000") || err.message.includes("duplicate")) {
+        console.log(`✅ Webhook duplicate event blocked successfully by unique index database constraints (code 11000).`);
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up test events
+    await StripeEvent.deleteMany({ eventId: { $in: ["evt_test_dup_1", "evt_test_dup_2"] } });
+    console.log(`✅ Stripe webhook deduplication validation fully verified!`);
+
+    await mongoose.connection.close();
+    console.log(`[db] Mongoose connection closed.`);
+
     console.log(`\n🎉 ALL TESTS PASSED SUCCESSFULLY!`);
-    console.log(`Security audit, AI upgrades, and subscription gating complete. Container stack is fully operational and hardened.\n`);
+    console.log(`Security audit, AI upgrades, subscription gating, and Stripe webhook idempotency complete. Container stack is fully operational and hardened.\n`);
   } catch (error) {
     console.error(`\n❌ TEST FAILING AT STEP:`, error.message);
     if (error.response && error.response.data) {
       console.error(`Response details:`, JSON.stringify(error.response.data, null, 2));
     }
+    try {
+      await mongoose.connection.close();
+      console.log(`[db] Mongoose connection closed on failure.`);
+    } catch (dbCloseErr) {}
     process.exit(1);
   }
 }

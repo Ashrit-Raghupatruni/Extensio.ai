@@ -128,7 +128,196 @@ router.get("/:id/versions/:versionId/preview/*", async (req, res) => {
 
     const contentType = mimeTypes[ext] || "text/plain; charset=utf-8";
     res.setHeader("Content-Type", contentType);
-    res.send(fileContent);
+
+    if (ext === ".html") {
+      const injectionScript = `
+<script>
+(function() {
+  const origLog = console.log;
+  const origWarn = console.warn;
+  const origError = console.error;
+  
+  function sendLog(type, args) {
+    const msg = Array.from(args).map(arg => {
+      if (typeof arg === 'object') {
+        try { return JSON.stringify(arg); } catch(e) { return String(arg); }
+      }
+      return String(arg);
+    }).join(' ');
+    window.parent.postMessage({ type: 'CONSOLE_LOG', level: type, message: msg }, '*');
+  }
+
+  console.log = function() {
+    sendLog('log', arguments);
+    origLog.apply(console, arguments);
+  };
+  console.warn = function() {
+    sendLog('warn', arguments);
+    origWarn.apply(console, arguments);
+  };
+  console.error = function() {
+    sendLog('error', arguments);
+    origError.apply(console, arguments);
+  };
+
+  window.addEventListener('error', function(e) {
+    window.parent.postMessage({ 
+      type: 'CONSOLE_LOG', 
+      level: 'error', 
+      message: 'Runtime Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno
+    }, '*');
+  });
+
+  window.addEventListener('unhandledrejection', function(e) {
+    window.parent.postMessage({ 
+      type: 'CONSOLE_LOG', 
+      level: 'error', 
+      message: 'Unhandled Promise Rejection: ' + e.reason 
+    }, '*');
+  });
+
+  if (!window.chrome) {
+    const pathParts = window.location.pathname.split('/');
+    const projectId = pathParts[3] || 'default';
+    const storageKeyPrefix = 'extensio_project_' + projectId + '_';
+
+    window.chrome = {
+      runtime: {
+        id: 'mock-extension-id',
+        getURL: function(path) { return path; },
+        sendMessage: function(message, responseCallback) {
+          console.log('[chrome.runtime.sendMessage]', message);
+          if (responseCallback) {
+            setTimeout(() => responseCallback({ status: 'success', mock: true }), 0);
+          }
+        },
+        onMessage: {
+          addListener: function(listener) {
+            console.log('[chrome.runtime.onMessage.addListener] registered listener');
+            window.addEventListener('message', function(event) {
+              if (event.data && event.data.type === 'SIMULATED_BACKGROUND_MESSAGE') {
+                listener(event.data.message, {}, function(response) {
+                  console.log('[chrome.runtime.onMessage] response from listener:', response);
+                });
+              }
+            });
+          },
+          removeListener: function() {},
+          hasListener: function() { return true; }
+        }
+      },
+      storage: {
+        local: {
+          get: function(keys, callback) {
+            const result = {};
+            try {
+              if (typeof keys === 'string') {
+                const val = localStorage.getItem(storageKeyPrefix + keys);
+                result[keys] = val ? JSON.parse(val) : undefined;
+              } else if (Array.isArray(keys)) {
+                keys.forEach(k => {
+                  const val = localStorage.getItem(storageKeyPrefix + k);
+                  result[k] = val ? JSON.parse(val) : undefined;
+                });
+              } else if (typeof keys === 'object' && keys !== null) {
+                Object.keys(keys).forEach(k => {
+                  const val = localStorage.getItem(storageKeyPrefix + k);
+                  result[k] = val ? JSON.parse(val) : keys[k];
+                });
+              } else {
+                for (let i = 0; i < localStorage.length; i++) {
+                  const key = localStorage.key(i);
+                  if (key && key.indexOf(storageKeyPrefix) === 0) {
+                    const realKey = key.substring(storageKeyPrefix.length);
+                    const val = localStorage.getItem(key);
+                    result[realKey] = val ? JSON.parse(val) : undefined;
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('chrome.storage.local.get error:', e);
+            }
+            if (callback) callback(result);
+            return Promise.resolve(result);
+          },
+          set: function(items, callback) {
+            try {
+              Object.keys(items).forEach(k => {
+                localStorage.setItem(storageKeyPrefix + k, JSON.stringify(items[k]));
+              });
+            } catch (e) {
+              console.error('chrome.storage.local.set error:', e);
+            }
+            if (callback) callback();
+            return Promise.resolve();
+          },
+          remove: function(keys, callback) {
+            try {
+              if (typeof keys === 'string') {
+                localStorage.removeItem(storageKeyPrefix + keys);
+              } else if (Array.isArray(keys)) {
+                keys.forEach(k => localStorage.removeItem(storageKeyPrefix + k));
+              }
+            } catch (e) {
+              console.error('chrome.storage.local.remove error:', e);
+            }
+            if (callback) callback();
+            return Promise.resolve();
+          },
+          clear: function(callback) {
+            try {
+              const toRemove = [];
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.indexOf(storageKeyPrefix) === 0) {
+                  toRemove.push(key);
+                }
+              }
+              toRemove.forEach(k => localStorage.removeItem(k));
+            } catch (e) {
+              console.error('chrome.storage.local.clear error:', e);
+            }
+            if (callback) callback();
+            return Promise.resolve();
+          }
+        },
+        sync: {
+          get: function(keys, callback) { return window.chrome.storage.local.get(keys, callback); },
+          set: function(items, callback) { return window.chrome.storage.local.set(items, callback); },
+          remove: function(keys, callback) { return window.chrome.storage.local.remove(keys, callback); },
+          clear: function(callback) { return window.chrome.storage.local.clear(callback); }
+        }
+      },
+      tabs: {
+        query: function(queryInfo, callback) {
+          const mockTabs = [{ id: 1, url: 'https://example.com', title: 'Example Page', active: true }];
+          if (callback) callback(mockTabs);
+          return Promise.resolve(mockTabs);
+        },
+        create: function(createProperties, callback) {
+          console.log('[chrome.tabs.create]', createProperties);
+          const mockTab = { id: 2, url: createProperties.url || '', active: true };
+          if (callback) callback(mockTab);
+          return Promise.resolve(mockTab);
+        }
+      }
+    };
+  }
+})();
+</script>`;
+
+      let modifiedContent = fileContent;
+      if (fileContent.includes("<head>")) {
+        modifiedContent = fileContent.replace("<head>", "<head>" + injectionScript);
+      } else if (fileContent.includes("<body>")) {
+        modifiedContent = fileContent.replace("<body>", "<body>" + injectionScript);
+      } else {
+        modifiedContent = injectionScript + fileContent;
+      }
+      res.send(modifiedContent);
+    } else {
+      res.send(fileContent);
+    }
   } catch (error) {
     console.error("[projectRoutes/preview] error:", error);
     res.status(500).json({ error: "Failed to serve preview asset." });
