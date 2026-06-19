@@ -28,7 +28,10 @@ async function runTests() {
     
     if (regRes.status === 201 && regRes.data.token) {
       token = regRes.data.token;
-      headers = { Authorization: `Bearer ${token}` };
+      headers = {
+        Authorization: `Bearer ${token}`,
+        "x-bypass-rate-limit": process.env.RATE_LIMIT_BYPASS_SECRET || "developer-secret"
+      };
       console.log(`✅ Registration successful! Token retrieved: ${token.slice(0, 10)}...`);
     } else {
       throw new Error(`Registration failed: ${JSON.stringify(regRes.data)}`);
@@ -391,7 +394,7 @@ async function runTests() {
     }
 
     // Restore the bypass header for subsequent requests
-    axios.defaults.headers.common["x-bypass-rate-limit"] = "developer-secret";
+    axios.defaults.headers.common["x-bypass-rate-limit"] = process.env.RATE_LIMIT_BYPASS_SECRET || "developer-secret";
 
     if (!rateLimited) {
       console.warn(`⚠️  Rate limiter did not trigger within 6 rapid requests (may need IP-based testing).`);

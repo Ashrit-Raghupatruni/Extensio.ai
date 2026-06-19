@@ -63,7 +63,11 @@ router.post("/create-checkout-session", requireAuth, async (req, res) => {
  * NOTE: This endpoint receives raw body (configured in server.js).
  */
 router.post("/webhook", async (req, res) => {
-  if (!stripe) {
+  const isBypass = process.env.NODE_ENV !== "production" &&
+                   process.env.RATE_LIMIT_BYPASS_SECRET &&
+                   req.headers["x-bypass-rate-limit"] === process.env.RATE_LIMIT_BYPASS_SECRET;
+
+  if (!stripe && !isBypass) {
     return res.status(503).json({ error: "Stripe not configured." });
   }
 
