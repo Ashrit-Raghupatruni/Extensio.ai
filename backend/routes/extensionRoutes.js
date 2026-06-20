@@ -6,7 +6,7 @@ import { generateExtensionZip } from "../services/extensionService.js";
 import { saveProject, getProject } from "../services/projectService.js";
 import { requireAuth } from "../utils/auth.js";
 import { createRateLimiter } from "../utils/rateLimiter.js";
-import { checkSubscriptionLimit } from "../backend/utils/subscription.js";
+import { checkSubscriptionLimit } from "../utils/subscription.js";
 
 // Strict rate limit for AI generation: 3 requests per minute per user
 const generateLimiter = createRateLimiter({
