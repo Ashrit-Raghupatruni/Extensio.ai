@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 export async function connectDB() {
-  const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/extensio";
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/extensio";
   console.log(`[db] Connecting to MongoDB at: ${mongoUri.replace(/:([^:@]+)@/, ':****@')}...`);
 
   try {
