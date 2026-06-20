@@ -1,9 +1,3 @@
-databases:
-  - name: extensio-db
-    databaseName: extensio
-    plan: free
-    ipAllowList: []
-
 services:
   - type: web
     name: extensio-ai
@@ -17,9 +11,7 @@ services:
       - key: PORT
         value: "4000"
       - key: MONGO_URI
-        fromDatabase:
-          name: extensio-db
-          property: connectionString
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
