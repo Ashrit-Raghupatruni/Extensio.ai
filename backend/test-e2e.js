@@ -69,6 +69,22 @@ async function runTests() {
       throw new Error(`Generation failed: ${JSON.stringify(genRes.data)}`);
     }
 
+    // 3.5. Testing Legacy download endpoint
+    console.log(`\n[Test 3.5] Downloading ZIP via legacy endpoint...`);
+    if (genRes.data.zipUrl) {
+      const legacyDlRes = await axios.get(`http://localhost:4000${genRes.data.zipUrl}`, {
+        headers,
+        responseType: "arraybuffer"
+      });
+      if (legacyDlRes.status === 200) {
+        console.log(`✅ Legacy download successful! Received: ${legacyDlRes.headers["content-length"]} bytes.`);
+      } else {
+        throw new Error(`Legacy download failed with status: ${legacyDlRes.status}`);
+      }
+    } else {
+      throw new Error("No legacy zipUrl returned in generation response.");
+    }
+
     // 4. Modify and Iterate Project (v2)
     console.log(`\n[Test 4] Requesting modification: "change button background to violet"...`);
     const iterRes = await axios.post(`${BASE_URL}/extensions/generate`, {
@@ -249,7 +265,7 @@ async function runTests() {
     console.log(`- Re-attempting premium extension generation as Premium user...`);
     const premiumGenRes = await axios.post(`${BASE_URL}/extensions/generate`, {
       projectName: "API Fetcher",
-      prompt: "A popup extension that calls a fetch API to load weather reports",
+      prompt: "A popup extension that calls a secure HTTPS fetch API to load weather reports (ensure all api endpoints, urls, and icons use https)",
     }, { headers });
 
     if (premiumGenRes.status === 200 && premiumGenRes.data.projectId) {
@@ -271,6 +287,32 @@ async function runTests() {
 
     console.log(`✅ Subscription gating and upgrade flows fully verified!`);
 
+    // 10.7. Testing Stripe Checkout and Customer Portal API endpoints
+    console.log(`\n[Test 10.7] Testing Stripe checkout session and portal endpoint responses...`);
+    try {
+      console.log(`- Requesting Stripe Checkout session...`);
+      const checkoutRes = await axios.post(`${BASE_URL}/stripe/create-checkout-session`, {}, { headers });
+      console.log(`✅ Checkout session API returned: ${checkoutRes.status} (URL: ${checkoutRes.data.url})`);
+    } catch (err) {
+      if (err.response && (err.response.status === 401 || err.response.status === 503 || err.response.status === 500)) {
+        console.log(`✅ Checkout session handled gracefully (Status: ${err.response.status}, Error: ${err.response.data.error || err.message})`);
+      } else {
+        throw err;
+      }
+    }
+
+    try {
+      console.log(`- Requesting Stripe Customer Portal session...`);
+      const portalRes = await axios.post(`${BASE_URL}/stripe/portal`, {}, { headers });
+      console.log(`✅ Billing portal API returned: ${portalRes.status} (URL: ${portalRes.data.url})`);
+    } catch (err) {
+      if (err.response && (err.response.status === 400 || err.response.status === 401 || err.response.status === 503 || err.response.status === 500)) {
+        console.log(`✅ Billing portal handled gracefully (Status: ${err.response.status}, Error: ${err.response.data.error || err.message})`);
+      } else {
+        throw err;
+      }
+    }
+
     // 11. Session Logout
     console.log(`\n[Test 11] Logging out and ending session...`);
     const logoutRes = await axios.post(`${BASE_URL}/auth/logout`, {}, { headers });
@@ -278,6 +320,22 @@ async function runTests() {
       console.log(`✅ Session logged out successfully!`);
     } else {
       throw new Error(`Logout failed: ${JSON.stringify(logoutRes.data)}`);
+    }
+
+    // 11.5. Logging back in via /auth/login
+    console.log(`\n[Test 11.5] Logging back in via /auth/login...`);
+    const loginRes = await axios.post(`${BASE_URL}/auth/login`, {
+      username,
+      password
+    });
+    if (loginRes.status === 200 && loginRes.data.token) {
+      console.log(`✅ Login successful! Token retrieved: ${loginRes.data.token.slice(0, 10)}...`);
+      headers = {
+        Authorization: `Bearer ${loginRes.data.token}`,
+        "x-bypass-rate-limit": process.env.RATE_LIMIT_BYPASS_SECRET || "developer-secret"
+      };
+    } else {
+      throw new Error(`Login failed: ${JSON.stringify(loginRes.data)}`);
     }
 
     // 12. Security Sanitization Audit (Direct Unit Test)

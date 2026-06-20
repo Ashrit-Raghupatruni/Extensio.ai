@@ -88,6 +88,7 @@ router.post("/generate", generateLimiter, checkSubscriptionLimit, async (req, re
       fileList: result.fileList,
       zipSize: result.zipSize,
       project: savedProject,
+      zipUrl: result.downloadUrl.replace("/downloads/", "/api/extensions/download/"),
     });
   } catch (error) {
     console.error("[extension/generate] Error:", error.message);
