@@ -19,7 +19,7 @@
     "helmet": "^8.2.0",
     "mongoose": "^8.0.0",
     "stripe": "^22.2.0",
-    "uuid": "^9.0.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
