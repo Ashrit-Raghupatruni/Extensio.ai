@@ -1568,9 +1568,10 @@
               <h3>No projects found</h3>
               <p style="color: var(--text-muted); margin-top: 0.25rem;">Create a new project using the button below to get started.</p>
             </div>
-            <button class="btn btn-primary" onclick="openNewProjectModal()">Create Project</button>
+            <button class="btn btn-primary btn-create-empty">Create Project</button>
           </div>
         `;
+        projectGrid.querySelector('.btn-create-empty').addEventListener('click', openNewProjectModal);
         return;
       }
 
@@ -1599,12 +1600,21 @@
             <span style="margin-top: 0.5rem;"><strong>Updated:</strong> ${updated}</span>
           </div>
           <div class="project-card-actions">
-            <button class="btn btn-primary project-card-btn" onclick="openProjectStudio('${project._id}')">Open Studio</button>
-            <button class="btn btn-danger" style="padding: 0.5rem;" onclick="confirmDeleteProject('${project._id}', '${escapeJS(project.projectName)}')">
+            <button class="btn btn-primary project-card-btn btn-open-studio">Open Studio</button>
+            <button class="btn btn-danger btn-delete-project" style="padding: 0.5rem;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
           </div>
         `;
+
+        card.querySelector('.btn-open-studio').addEventListener('click', () => {
+          openProjectStudio(project._id);
+        });
+
+        card.querySelector('.btn-delete-project').addEventListener('click', () => {
+          confirmDeleteProject(project._id, project.projectName);
+        });
+
         projectGrid.appendChild(card);
       });
     }
